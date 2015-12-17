@@ -1,0 +1,165 @@
+#!/usr/bin/env python3
+#
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+# 
+#   http://www.apache.org/licenses/LICENSE-2.0
+# 
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+
+import importlib
+import os
+import runpy
+import sys
+
+from argparse import ArgumentParser, RawDescriptionHelpFormatter
+from tornado.wsgi import WSGIContainer
+from tornado.httpserver import HTTPServer
+from tornado.ioloop import IOLoop
+
+default_brbn_home = os.path.normpath("@brbn_home@")
+brbn_home = os.environ.get("BRBN_HOME", default_brbn_home)
+
+sys.path.append(os.path.join(brbn_home, "python"))
+
+from brbn import *
+from faller import *
+
+user_dir = os.path.expanduser("~")
+default_config_file = os.path.join(user_dir, ".config", "brbn", "config.py")
+
+description = "Brbn serves HTTP requests"
+
+epilog = """example usage:
+  % brbn --home /usr/share/example example:ExampleApplication
+
+Brbn looks for its configuration in the following locations:
+
+  1. The file indicated by --config
+  2. $HOME/.config/brbn/config.py
+  3. /etc/brbn/config.py
+
+The positional argument APP identifies an instance of BrbnApplication,
+using the notation "$module:$class".  The class constructor must
+accept an optional keyword argument "home".  When Brbn invokes the
+constructor, it will pass in the value of the --home option.
+"""
+
+raw = RawDescriptionHelpFormatter
+parser = ArgumentParser(description=description,
+                        epilog=epilog,
+                        formatter_class=raw)
+
+parser.add_argument("app", metavar="APP", nargs="?",
+                    help="Find app class at APP (brbn:Hello)")
+
+parser.add_argument("--home", metavar="DIR",
+                    help="Use DIR as the app home directory ({})".format(brbn_home))
+
+parser.add_argument("--port", metavar="PORT",
+                    help="Serve HTTP at PORT (8000)")
+
+parser.add_argument("--config", default=default_config_file, metavar="FILE",
+                    help="Load configuration from FILE")
+
+_log = logger("brbn")
+
+def main():
+    add_logged_module("brbn")
+    add_logged_module("tornado")
+    
+    setup_console_logging("info")
+
+    args = parser.parse_args()
+    config = load_config(args)
+    cls = import_app(config)
+
+    app = cls(home=config["home"])
+    app.load(brbn_home)
+    app.start()
+
+    server = HTTPServer(WSGIContainer(app))
+    port = config["port"]
+
+    try:
+        server.listen(port)
+    except OSError as e:
+        exit(str(e))
+
+    _log.info("Listening on port {}".format(port))
+    
+    IOLoop.current().start()
+
+def load_config(args):
+    config_file = args.config
+    config = dict()
+
+    config["home"] = brbn_home
+    config["app"] = "brbn:Hello"
+    config["port"] = 8000
+
+    if not os.path.exists(config_file):
+        config_file = os.path.join("/", "etc", "brbn", "config.py")
+
+    if os.path.exists(config_file):
+        _log.info("Loading configuration from '{}'".format(config_file))
+
+        entries = runpy.run_path(config_file, config)
+        config.update(entries)
+
+    if args.app is not None:
+        config["app"] = args.app
+
+    if args.home is not None:
+        config["home"] = args.home
+
+    if args.port is not None:
+        config["port"] = args.port
+
+    return config
+
+def import_app(config):
+    app_spec = config["app"]
+    
+    if ":" in app_spec:
+        module_name, class_name = app_spec.split(":", 1)
+    else:
+        module_name, class_name = app_spec, "Application"
+
+    try:
+        module = importlib.import_module(module_name)
+    except ImportError as e:
+        exit(str(e))
+
+    try:
+        cls = getattr(module, class_name)
+    except AttributeError:
+        exit("No application named '{}'", class_name)
+
+    return cls
+
+def exit(message=None, *args):
+    if message is None:
+        sys.exit()
+
+    message = "Error: {}".format(message)
+    message = message.format(*args)
+
+    sys.exit(message)
+        
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass

@@ -1,1 +1,3 @@
-# brbn
+# Brbn
+
+Brbn serves HTTP requests
