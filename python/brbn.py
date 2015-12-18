@@ -17,8 +17,10 @@
 # under the License.
 #
 
+import datetime as _datetime
 import functools as _functools
 import hashlib as _hashlib
+import importlib as _importlib
 import logging as _logging
 import os as _os
 import pprint as _pprint
@@ -26,12 +28,14 @@ import re as _re
 import sched as _sched
 import sys as _sys
 import threading as _threading
-import datetime as _datetime
 import time as _time
 import traceback as _traceback
 import urllib as _urllib
 import uuid as _uuid
 
+from tornado.httpserver import HTTPServer as _HTTPServer
+from tornado.ioloop import IOLoop as _IOLoop
+from tornado.wsgi import WSGIContainer as _WSGIContainer
 from urllib.parse import quote_plus as _url_escape
 from urllib.parse import unquote_plus as _url_unescape
 from xml.sax.saxutils import escape as _xml_escape
@@ -152,6 +156,7 @@ def xml_unescape(string):
 class BrbnApplication:
     def __init__(self, home=None):
         self.home = home
+        self.brbn_home = None
 
         self.pages_by_path = dict()
         self.files_by_path = dict()
@@ -168,9 +173,9 @@ class BrbnApplication:
     def spec(self):
         return "{}:{}".format(self.__module__, self.__class__.__name__)
 
-    def load(self, brbn_home=None):
-        if brbn_home is not None:
-            brbn_files_dir = _os.path.join(brbn_home, "files")
+    def load(self):
+        if self.brbn_home is not None:
+            brbn_files_dir = _os.path.join(self.brbn_home, "files")
             self._load_files(brbn_files_dir)
 
         if self.home is not None:
@@ -788,6 +793,63 @@ class _SessionExpireThread(_threading.Thread):
 
         _log.debug("Expired {} client sessions".format(count))
         
+class BrbnServer:
+    def __init__(self, app_spec, app_home, port=8000, brbn_home=None):
+        self.app_spec = app_spec
+        self.app_home = app_home
+        self.port = port
+        self.brbn_home = brbn_home
+
+        self.app = None
+        self._tornado_server = None
+
+    def __repr__(self):
+        return _format_repr(self, self.port)
+
+    def load(self):
+        _log.info("Loading {}".format(self))
+        
+        assert self.app is None
+        assert self._tornado_server is None
+        
+        if ":" in self.app_spec:
+            module_name, class_name = self.app_spec.split(":", 1)
+        else:
+            module_name, class_name = self.app_spec, "Application"
+
+        try:
+            module = _importlib.import_module(module_name)
+        except ImportError:
+            raise BrbnServerError("No module named '{}'".format(module_name))
+
+        try:
+            cls = getattr(module, class_name)
+        except AttributeError:
+            raise BrbnServerError("No class named '{}'".format(class_name))
+
+        self.app = cls(home=self.app_home)
+        self.app.brbn_home = self.brbn_home
+
+        self._tornado_server = _HTTPServer(_WSGIContainer(self.app))
+
+        self.app.load()
+    
+    def run(self):
+        _log.info("Starting {}".format(self))
+
+        self.app.start()
+
+        try:
+            self._tornado_server.listen(self.port)
+        except OSError as e:
+            msg = "Cannot listen on port {}: {}".format(self.port, str(e))
+            raise BrbnServerError(msg)
+
+        _IOLoop.current().start()
+        
+class BrbnServerError(Exception):
+    pass
+
 def _format_repr(obj, *args):
     cls = obj.__class__.__name__
     strings = [str(x) for x in args]

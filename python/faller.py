@@ -41,8 +41,8 @@ _formatter = _logging.Formatter \
     ("%(threadName)-6.6s %(asctime)s %(levelname)-4.4s %(message)s")
 
 def _add_logging(name, level, file):
-    assert level, level
-    assert file, file
+    assert level is not None, level
+    assert file is not None, file
 
     if isinstance(level, str):
         level = _levels_by_name[level.lower()]
@@ -62,7 +62,7 @@ def _add_logging(name, level, file):
     _handlers_by_logger[log].append(handler)
 
 def _remove_logging(name):
-    log = logger(name)
+    log = _logging.getLogger(name)
     handlers = _handlers_by_logger[log]
 
     for handler in handlers:
@@ -71,19 +71,17 @@ def _remove_logging(name):
     del _handlers_by_logger[log]
 
 def setup_initial_logging():
-    log_level = "warn"
-
     for name in _logged_modules:
-        _add_logging(name, log_level, _sys.stderr)
+        _add_logging(name, "warn", _sys.stderr)
 
-def setup_console_logging(level):
+def setup_console_logging(level="info"):
     for name in _logged_modules:
         _remove_logging(name)
 
     for name in _logged_modules:
         _add_logging(name, level, _sys.stderr)
 
-def setup_file_logging(level, file):
+def setup_file_logging(file, level="info"):
     for name in _logged_modules:
         _remove_logging(name)
 
@@ -93,7 +91,6 @@ def setup_file_logging(level, file):
 
 def add_logged_module(name):
     assert isinstance(name, str), name
+    assert name not in _logged_modules, name
     
     _logged_modules.append(name)
-
-logger = _logging.getLogger

@@ -18,15 +18,12 @@
 # under the License.
 #
 
-import importlib
+import logging
 import os
 import runpy
 import sys
 
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
-from tornado.wsgi import WSGIContainer
-from tornado.httpserver import HTTPServer
-from tornado.ioloop import IOLoop
 
 default_brbn_home = os.path.normpath("@brbn_home@")
 brbn_home = os.environ.get("BRBN_HOME", default_brbn_home)
@@ -73,7 +70,7 @@ parser.add_argument("--port", metavar="PORT",
 parser.add_argument("--config", default=default_config_file, metavar="FILE",
                     help="Load configuration from FILE")
 
-_log = logger("brbn")
+_log = logging.getLogger("brbn")
 
 def main():
     add_logged_module("brbn")
@@ -83,23 +80,16 @@ def main():
 
     args = parser.parse_args()
     config = load_config(args)
-    cls = import_app(config)
 
-    app = cls(home=config["home"])
-    app.load(brbn_home)
-    app.start()
-
-    server = HTTPServer(WSGIContainer(app))
-    port = config["port"]
+    server = BrbnServer(config["app"], config["home"],
+                        port=config["port"],
+                        brbn_home=brbn_home)
 
     try:
-        server.listen(port)
-    except OSError as e:
-        exit(str(e))
-
-    _log.info("Listening on port {}".format(port))
-    
-    IOLoop.current().start()
+        server.load()
+        server.run()
+    except BrbnServerError as e:
+        sys.exit("Error! {}".format(str(e)))
 
 def load_config(args):
     config_file = args.config
@@ -129,35 +119,6 @@ def load_config(args):
 
     return config
 
-def import_app(config):
-    app_spec = config["app"]
-    
-    if ":" in app_spec:
-        module_name, class_name = app_spec.split(":", 1)
-    else:
-        module_name, class_name = app_spec, "Application"
-
-    try:
-        module = importlib.import_module(module_name)
-    except ImportError as e:
-        exit(str(e))
-
-    try:
-        cls = getattr(module, class_name)
-    except AttributeError:
-        exit("No application named '{}'", class_name)
-
-    return cls
-
-def exit(message=None, *args):
-    if message is None:
-        sys.exit()
-
-    message = "Error: {}".format(message)
-    message = message.format(*args)
-
-    sys.exit(message)
-        
 if __name__ == "__main__":
     try:
         main()
