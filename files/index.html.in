@@ -1,0 +1,13 @@
+<h2>Create example.py</h2>
+          
+<pre>class Application(BrbnApplication):
+    def receive_request(self, request):
+        if request.path == "/hello.txt":
+            return request.respond_ok("Hello!", "text/plain")
+
+        return self.send_file(request)</pre>
+
+<h2>Run the application</h2>
+
+<pre>$ brbn example:Application
+MainTh 2015-11-20 07:10:57,090 INFO Listening on port 8000</pre>

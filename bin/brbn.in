@@ -81,14 +81,22 @@ def main():
     args = parser.parse_args()
     config = load_config(args)
 
-    server = BrbnServer(config["app"], config["home"],
-                        port=config["port"],
-                        brbn_home=brbn_home)
+    app_spec = config["app"]
+    home = config["home"]
+    port = config["port"]
+    
+    try:
+        app = BrbnApplication.for_spec(app_spec, home, brbn_home)
+    except BrbnError as e:
+        sys.exit("Error! {}".format(str(e)))
+
+    app.load()
+
+    server = BrbnServer(app, port)
 
     try:
-        server.load()
         server.run()
-    except BrbnServerError as e:
+    except BrbnError as e:
         sys.exit("Error! {}".format(str(e)))
 
 def load_config(args):

@@ -153,11 +153,15 @@ def xml_unescape(string):
 
     return _xml_unescape(string)
 
+class BrbnError(Exception):
+    pass
+
 class BrbnApplication:
     def __init__(self, home=None):
         self.home = home
         self.brbn_home = None
 
+        self.pages = list()
         self.pages_by_path = dict()
         self.files_by_path = dict()
 
@@ -172,6 +176,28 @@ class BrbnApplication:
     @property
     def spec(self):
         return "{}:{}".format(self.__module__, self.__class__.__name__)
+
+    @classmethod
+    def for_spec(self, spec, home=None, brbn_home=None):
+        if ":" in spec:
+            module_name, class_name = spec.split(":", 1)
+        else:
+            module_name, class_name = spec, "Application"
+
+        try:
+            module = _importlib.import_module(module_name)
+        except ImportError:
+            raise BrbnError("No module named '{}'".format(module_name))
+
+        try:
+            cls = getattr(module, class_name)
+        except AttributeError:
+            raise BrbnError("No class named '{}'".format(class_name))
+
+        app = cls(home=home)
+        app.brbn_home = brbn_home
+
+        return app
 
     def load(self):
         if self.brbn_home is not None:
@@ -200,6 +226,10 @@ class BrbnApplication:
                 # XXX .html.in files
 
                 BrbnFile(self, path, content)
+
+    def init(self):
+        for page in self.pages:
+            page.init()
 
     def start(self):
         _log.info("Starting {}".format(self))
@@ -283,7 +313,8 @@ class BrbnFile:
         try:
             self.content_type = _content_types_by_extension[ext]
         except KeyError:
-            raise Exception("File type '{}' is unknown".format(ext))
+            #raise Exception("File type '{}' is unknown".format(ext)) XXX
+            self.content_type = None
         
         self.etag = _hashlib.sha1(self.content).hexdigest()[:8]
         
@@ -293,7 +324,7 @@ class BrbnFile:
         return _format_repr(self, self.path, self.etag)
 
 class BrbnPage:
-    def __init__(self, app, parent, title, href, body_template):
+    def __init__(self, app, parent, title, href):
         self.app = app
         self.parent = parent
         self.title = title
@@ -303,7 +334,6 @@ class BrbnPage:
 
         self._page_template = BrbnTemplate(_page_template, self)
         self._head_template = BrbnTemplate(_head_template, self)
-        self._body_template = BrbnTemplate(body_template, self)
         self._foot_template = BrbnTemplate(_foot_template, self)
 
         self.path = self.href
@@ -312,10 +342,16 @@ class BrbnPage:
             if "?" in self.path:
                 self.path = self.path.split("?", 1)[0]
 
+            assert self.path not in self.app.pages_by_path
+
+            self.app.pages.append(self)
             self.app.pages_by_path[self.path] = self
 
     def __repr__(self):
         return _format_repr(self, self.path)
+
+    def init(self):
+        pass
     
     def receive_request(self, request):
         return self.send_response(request)
@@ -373,7 +409,7 @@ class BrbnPage:
 
     @xml
     def render_body(self, request):
-        return self._body_template.render(request)
+        raise NotImplemented()
 
     @xml
     def render_foot(self, request):
@@ -418,6 +454,27 @@ class BrbnPage:
     def send_response(self, request):
         content = self.render(request)
         return request.respond_ok(content, self.content_type)
+
+class BrbnTemplatePage(BrbnPage):
+    def __init__(self, app, parent, title, href, body_template):
+        super().__init__(app, parent, title, href)
+
+        self._body_template = BrbnTemplate(body_template, self)
+
+    @xml
+    def render_body(self, request):
+        return self._body_template.render(request)
+    
+class BrbnFilePage(BrbnPage):
+    def __init__(self, app, parent, title, href, file_path):
+        super().__init__(app, parent, title, href)
+
+        self.file_path = file_path
+
+    @xml
+    def render_body(self, request):
+        file = self.app.files_by_path[self.file_path]
+        return file.content.decode("utf-8")
 
 class BrbnTemplate:
     @staticmethod
@@ -664,7 +721,7 @@ class _Request:
 class _RequestError(Exception):
     pass
 
-class _ErrorPage(BrbnPage):
+class _ErrorPage(BrbnTemplatePage):
     def __init__(self, app):
         super().__init__(app, None, "Error!", None, _error_template)
 
@@ -794,46 +851,15 @@ class _SessionExpireThread(_threading.Thread):
         _log.debug("Expired {} client sessions".format(count))
         
 class BrbnServer:
-    def __init__(self, app_spec, app_home, port=8000, brbn_home=None):
-        self.app_spec = app_spec
-        self.app_home = app_home
+    def __init__(self, app, port=8000):
+        self.app = app
         self.port = port
-        self.brbn_home = brbn_home
 
-        self.app = None
-        self._tornado_server = None
+        self._tornado_server = _HTTPServer(_WSGIContainer(self.app))
 
     def __repr__(self):
         return _format_repr(self, self.port)
 
-    def load(self):
-        _log.info("Loading {}".format(self))
-        
-        assert self.app is None
-        assert self._tornado_server is None
-        
-        if ":" in self.app_spec:
-            module_name, class_name = self.app_spec.split(":", 1)
-        else:
-            module_name, class_name = self.app_spec, "Application"
-
-        try:
-            module = _importlib.import_module(module_name)
-        except ImportError:
-            raise BrbnServerError("No module named '{}'".format(module_name))
-
-        try:
-            cls = getattr(module, class_name)
-        except AttributeError:
-            raise BrbnServerError("No class named '{}'".format(class_name))
-
-        self.app = cls(home=self.app_home)
-        self.app.brbn_home = self.brbn_home
-
-        self._tornado_server = _HTTPServer(_WSGIContainer(self.app))
-
-        self.app.load()
-    
     def run(self):
         _log.info("Starting {}".format(self))
 
@@ -843,13 +869,10 @@ class BrbnServer:
             self._tornado_server.listen(self.port)
         except OSError as e:
             msg = "Cannot listen on port {}: {}".format(self.port, str(e))
-            raise BrbnServerError(msg)
+            raise BrbnError(msg)
 
         _IOLoop.current().start()
         
-class BrbnServerError(Exception):
-    pass
-
 def _format_repr(obj, *args):
     cls = obj.__class__.__name__
     strings = [str(x) for x in args]
@@ -872,19 +895,23 @@ class Hello(BrbnApplication):
         self.index_page = _IndexPage(self, None)
         self.explode_page = _ExplodePage(self, self.index_page)
 
-        self.request_info = _RequestInfo()
-
-class _IndexPage(BrbnPage):
+class _IndexPage(BrbnFilePage):
+    def __init__(self, app, parent):
+        super().__init__(app, parent, "Hello!", "/index.html", "/index.html.in")
+        
+class _RequestPage(BrbnTemplatePage):
     def __init__(self, app, parent):
         super().__init__(app, parent, "Hello!", "/index.html", _hello_template)
 
+        self.request_info = _RequestInfo()
+
     @xml
     def render_request_info(self, request):
-        return self.app.request_info.render(request)
+        return self.request_info.render(request)
 
 class _ExplodePage(BrbnPage):
     def __init__(self, app, parent):
-        super().__init__(app, parent, "Explode!", "/explode.html", "")
+        super().__init__(app, parent, "Explode!", "/explode.html")
 
     def render_body(self, request):
         raise Exception("Exploding!")
