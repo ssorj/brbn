@@ -33,4 +33,4 @@ test: install
 
 devel: PREFIX := ${PWD}/install
 devel: clean test
-	brbn
+	PATH=${PREFIX}/bin:${PATH} brbn

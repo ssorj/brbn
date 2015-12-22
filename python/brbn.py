@@ -137,6 +137,7 @@ class Application:
         self._pages_by_path = dict()
         self._files_by_path = dict()
 
+        self._root_page = None
         self._error_page = _ErrorPage(self)
 
         self._sessions_by_id = dict()
@@ -327,7 +328,7 @@ class Request:
         session_id = self._parse_session_cookie()
 
         if session_id is None:
-            self.session = Session(self.app)
+            self._session = Session(self.app)
         else:
             try:
                 self._session = self.app._sessions_by_id[session_id]
