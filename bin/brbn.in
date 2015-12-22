@@ -18,10 +18,12 @@
 # under the License.
 #
 
+import importlib
 import logging
 import os
 import runpy
 import sys
+import threading
 
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 
@@ -30,8 +32,8 @@ brbn_home = os.environ.get("BRBN_HOME", default_brbn_home)
 
 sys.path.append(os.path.join(brbn_home, "python"))
 
-from brbn import *
-from faller import *
+import brbn
+import faller
 
 user_dir = os.path.expanduser("~")
 default_config_file = os.path.join(user_dir, ".config", "brbn", "config.py")
@@ -47,7 +49,7 @@ Brbn looks for its configuration in the following locations:
   2. $HOME/.config/brbn/config.py
   3. /etc/brbn/config.py
 
-The positional argument APP identifies an instance of BrbnApplication,
+The positional argument APP identifies an instance of brbn.Application,
 using the notation "$module:$class".  The class constructor must
 accept an optional keyword argument "home".  When Brbn invokes the
 constructor, it will pass in the value of the --home option.
@@ -73,10 +75,12 @@ parser.add_argument("--config", default=default_config_file, metavar="FILE",
 _log = logging.getLogger("brbn")
 
 def main():
-    add_logged_module("brbn")
-    add_logged_module("tornado")
+    threading.current_thread().name = "brbn"
     
-    setup_console_logging("info")
+    faller.add_logged_module("brbn")
+    faller.add_logged_module("tornado")
+    
+    faller.setup_console_logging("info")
 
     args = parser.parse_args()
     config = load_config(args)
@@ -86,17 +90,19 @@ def main():
     port = config["port"]
     
     try:
-        app = BrbnApplication.for_spec(app_spec, home, brbn_home)
-    except BrbnError as e:
+        app = load_app(app_spec, home, brbn_home)
+    except brbn.Error as e:
         sys.exit("Error! {}".format(str(e)))
 
     app.load()
+    app.init()
+    app.start()
 
-    server = BrbnServer(app, port)
+    server = brbn.Server(app, port)
 
     try:
         server.run()
-    except BrbnError as e:
+    except brbn.Error as e:
         sys.exit("Error! {}".format(str(e)))
 
 def load_config(args):
@@ -126,6 +132,27 @@ def load_config(args):
         config["port"] = args.port
 
     return config
+
+def load_app(spec, home=None, brbn_home=None):
+    if ":" in spec:
+        module_name, class_name = spec.split(":", 1)
+    else:
+        module_name, class_name = spec, "Application"
+
+    try:
+        module = importlib.import_module(module_name)
+    except ImportError:
+        raise brbn.Error("No module named '{}'".format(module_name))
+
+    try:
+        cls = getattr(module, class_name)
+    except AttributeError:
+        raise brbn.Error("No class named '{}'".format(class_name))
+
+    app = cls(home=home)
+    app._brbn_home = brbn_home
+
+    return app
 
 if __name__ == "__main__":
     try:

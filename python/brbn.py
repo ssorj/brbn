@@ -20,7 +20,6 @@
 import datetime as _datetime
 import functools as _functools
 import hashlib as _hashlib
-import importlib as _importlib
 import logging as _logging
 import os as _os
 import pprint as _pprint
@@ -44,6 +43,7 @@ from xml.sax.saxutils import unescape as _xml_unescape
 _log = _logging.getLogger("brbn")
 
 _xhtml = "application/xhtml+xml; charset=utf-8"
+_text = "text/plain"
 
 _content_types_by_extension = {
     ".css": "text/css",
@@ -54,6 +54,7 @@ _content_types_by_extension = {
     ".jpg": "image/jpeg",
     ".js": "application/javascript",
     ".svg": "image/svg+xml",
+    ".txt": _text,
     ".woff": "application/font-woff",
 }
 
@@ -91,34 +92,6 @@ _head_template = """{global_navigation}
 
 _foot_template = """ """
 
-_error_template = """
-<h1>{title}</h1>
-
-<p>{message}</p>
-
-<div class="hidden">
-  {request_info}
-</div>
-"""
-
-_info_template = """
-<h2>Traceback</h2>
-
-{traceback}
-
-<h2>Request</h2>
-
-{request}
-
-<h2>Application</h2>
-
-{application}
-
-<h2>System</h2>
-
-{system}
-"""
-
 def url_escape(string):
     if string is None:
         return
@@ -153,18 +126,21 @@ def xml_unescape(string):
 
     return _xml_unescape(string)
 
-class BrbnError(Exception):
+class Error(Exception):
     pass
 
-class BrbnApplication:
+class ObjectNotFound(Exception):
+    pass
+    
+class Application:
     def __init__(self, home=None):
-        self.home = home
-        self.brbn_home = None
+        self._home = home
+        self._brbn_home = None
 
-        self.pages = list()
-        self.pages_by_path = dict()
-        self.files_by_path = dict()
+        self._pages_by_path = dict()
+        self._files_by_path = dict()
 
+        self._root_page = _SitePage(self, "/")
         self._error_page = _ErrorPage(self)
 
         self._sessions_by_id = dict()
@@ -177,29 +153,36 @@ class BrbnApplication:
     def spec(self):
         return "{}:{}".format(self.__module__, self.__class__.__name__)
 
-    @classmethod
-    def for_spec(self, spec, home=None, brbn_home=None):
-        if ":" in spec:
-            module_name, class_name = spec.split(":", 1)
-        else:
-            module_name, class_name = spec, "Application"
+    @property
+    def home(self):
+        return self._home
 
-        try:
-            module = _importlib.import_module(module_name)
-        except ImportError:
-            raise BrbnError("No module named '{}'".format(module_name))
+    @property
+    def brbn_home(self):
+        return self._brbn_home
 
-        try:
-            cls = getattr(module, class_name)
-        except AttributeError:
-            raise BrbnError("No class named '{}'".format(class_name))
+    @property
+    def pages_by_path(self):
+        return self._pages_by_path
 
-        app = cls(home=home)
-        app.brbn_home = brbn_home
+    @property
+    def files_by_path(self):
+        return self._files_by_path
 
-        return app
+    @property
+    def root_page(self):
+        return self._root_page
 
+    @root_page.setter
+    def root_page(self, page):
+        assert isinstance(page, Page), page
+        assert page.path == "/"
+
+        self._root_page = page
+    
     def load(self):
+        _log.info("Loading {}".format(self))
+
         if self.brbn_home is not None:
             brbn_files_dir = _os.path.join(self.brbn_home, "files")
             self._load_files(brbn_files_dir)
@@ -212,7 +195,7 @@ class BrbnApplication:
         if not _os.path.isdir(files_dir):
             return
 
-        _log.info("Loading files under {}".format(files_dir))
+        _log.debug("Loading files under {}".format(files_dir))
         
         for root, dirs, files in _os.walk(files_dir):
             for name in files:
@@ -223,12 +206,12 @@ class BrbnApplication:
 
                 path = path[len(files_dir):]
 
-                # XXX .html.in files
-
-                BrbnFile(self, path, content)
+                File(self, path, content)
 
     def init(self):
-        for page in self.pages:
+        _log.info("Initializing {}".format(self))
+        
+        for path, page in sorted(self.pages_by_path.items()):
             page.init()
 
     def start(self):
@@ -237,7 +220,7 @@ class BrbnApplication:
         self._session_expire_thread.start()
 
     def __call__(self, env, start_response):
-        request = _Request(self, env, start_response)
+        request = Request(self, env, start_response)
 
         try:
             return self._call_with_request(request)
@@ -247,7 +230,7 @@ class BrbnApplication:
 
     def _call_with_request(self, request):
         try:
-            request._load()
+            request.load()
         except _RequestError as e:
             _log.exception("Request error")
             return request.respond_error(e)
@@ -269,9 +252,6 @@ class BrbnApplication:
     def receive_request(self, request):
         path = request.path
 
-        if path == "/":
-            path = "/index.html"
-        
         try:
             page = self.pages_by_path[path]
         except KeyError:
@@ -302,102 +282,156 @@ class BrbnApplication:
 
         return request.respond("200 OK", file.content, file.content_type)
 
-class BrbnFile:
+class File:
     def __init__(self, app, path, content):
-        self.app = app
-        self.path = path
-        self.content = content
+        self._app = app
+        self._path = path
+        self._content = content
 
         name, ext = _os.path.splitext(self.path)
 
-        try:
-            self.content_type = _content_types_by_extension[ext]
-        except KeyError:
-            #raise Exception("File type '{}' is unknown".format(ext)) XXX
-            self.content_type = None
-        
-        self.etag = _hashlib.sha1(self.content).hexdigest()[:8]
+        self._content_type = _content_types_by_extension.get(ext, _text)
+        self._etag = _hashlib.sha1(self.content).hexdigest()[:8]
         
         self.app.files_by_path[self.path] = self
         
     def __repr__(self):
         return _format_repr(self, self.path, self.etag)
 
-class BrbnPage:
-    def __init__(self, app, parent, title, href):
-        self.app = app
-        self.parent = parent
-        self.title = title
-        self.href = href
+    @property
+    def app(self):
+        return self._app
 
-        self.content_type = _xhtml
+    @property
+    def path(self):
+        return self._path
 
-        self._page_template = BrbnTemplate(_page_template, self)
-        self._head_template = BrbnTemplate(_head_template, self)
-        self._foot_template = BrbnTemplate(_foot_template, self)
+    @property
+    def content(self):
+        return self._content
 
-        self.path = self.href
+    @property
+    def content_type(self):
+        return self._content_type
 
-        if self.path is not None:
-            if "?" in self.path:
-                self.path = self.path.split("?", 1)[0]
+    @property
+    def etag(self):
+        return self._etag
 
-            assert self.path not in self.app.pages_by_path
+    def get_title(self):
+        return self.path
 
-            self.app.pages.append(self)
-            self.app.pages_by_path[self.path] = self
+    def get_href(self):
+        return self.path
+    
+    def get_link(self):
+        title = self.get_title()
+        href = self.get_href()
 
+        return "<a href=\"{}\">{}</a>".format(href, xml_escape(title))
+
+    def decode(self, encoding="utf-8", errors="strict"):
+        return self.content.decode(encoding, errors)
+
+class Page:
+    def __init__(self, app, path, title=None, parent=None):
+        self._app = app
+        self._path = path
+        self._title = title
+        self._parent = parent
+
+        name, ext = _os.path.splitext(self.path)
+
+        self._content_type = _content_types_by_extension.get(ext, _xhtml)
+
+        self._page_template = Template(_page_template, self)
+        self._head_template = Template(_head_template, self)
+        self._foot_template = Template(_foot_template, self)
+
+        #assert self.path not in self.app.pages_by_path, self.path
+
+        self.app.pages_by_path[self.path] = self
+    
     def __repr__(self):
         return _format_repr(self, self.path)
 
+    @property
+    def app(self):
+        return self._app
+
+    @property
+    def title(self):
+        return self._title
+
+    @property
+    def parent(self):
+        return self._parent
+
+    @property
+    def path(self):
+        return self._path
+
+    @property
+    def content_type(self):
+        return self._content_type
+
     def init(self):
-        pass
-    
+        _log.debug("Initializing {}".format(self))
+
+        if self.parent is None and self.path != "/":
+            self._parent = self.app.root_page
+
     def receive_request(self, request):
+        try:
+            request.object = self.get_object(request)
+        except ObjectNotFound as e:
+            return request.respond_not_found()
+
         return self.send_response(request)
 
-    def _get_name(self, obj=None, name=None):
-        if name is None and obj is not None:
-            name = obj.name
-
-        return name
-    
-    def get_title(self, obj=None, name=None):
-        name = self._get_name(obj, name)
-
-        if name is None:
-            return self.title
-
-        return self.title.format(name)
-
-    def get_short_title(self, obj=None, name=None):
-        name = self._get_name(obj, name)
-
-        if name is None:
-            return self.title
-
-        return name
-    
-    def get_href(self, obj=None, key=None):
-        if obj is None and key is None:
-            return self.href
-
-        if key is None:
-            key = obj.id
+    def get_href(self, **params):
+        if not params:
+            return self.path
         
-        return self.href.format(url_escape(key))
+        query_vars = list()
 
-    def get_link(self, obj=None, name=None, key=None):
-        href = self.get_href(obj, key)
-        text = self.get_title(obj, name)
+        for name, value in sorted(params.items()):
+            query_vars.append("{}={}".format(url_escape(name), url_escape(value)))
 
-        return "<a href=\"{}\">{}</a>".format(href, xml_escape(text))
+        query_vars = ";".join(query_vars)
 
-    def get_short_link(self, obj=None, name=None, key=None):
-        href = self.get_href(obj, key)
-        text = self.get_short_title(obj, name)
+        return "{}?{}".format(self.path, query_vars)
 
-        return "<a href=\"{}\">{}</a>".format(href, xml_escape(text))
+    def get_link(self, **params):
+        title = self.title
+        href = self.get_href(**params)
+
+        return "<a href=\"{}\">{}</a>".format(href, xml_escape(title))
+        
+    def get_object(self, request):
+        pass
+    
+    def get_object_name(self, request, obj):
+        if hasattr(obj, "name"):
+            return obj.name
+
+    def get_object_id(self, request, obj):
+        if hasattr(obj, "id"):
+            return obj.id
+
+    def get_object_href(self, request, obj):
+        key = self.get_object_id(request, obj)
+        return self.get_href(id=key)
+
+    def get_object_parent(self, request, obj):
+        if hasattr(obj, "parent"):
+            return obj.parent
+
+    def get_object_link(self, request, obj):
+        name = self.get_object_name(request, obj)
+        href = self.get_object_href(request, obj)
+
+        return "<a href=\"{}\">{}</a>".format(href, xml_escape(name))
 
     @xml
     def render(self, request):
@@ -409,44 +443,36 @@ class BrbnPage:
 
     @xml
     def render_body(self, request):
-        raise NotImplemented()
+        raise NotImplementedError()
 
     @xml
     def render_foot(self, request):
         return self._foot_template.render(request)
 
     def render_title(self, request):
-        return self.get_title(request.object)
-
-    def render_short_title(self, request):
-        return self.get_short_title(request.object)
+        if request.object is not None:
+            return self.get_object_name(request, request.object)
+        
+        if self.title is not None:
+            return self.title
 
     @xml
     def render_path_navigation(self, request):
         links = list()
         page = self
-        obj = request.object
 
-        links.append(page.get_title(obj))
-
+        links.append(page.render_title(request))
         page = page.parent
 
-        if obj is not None:
-            obj = obj.parent
-        
         while page is not None:
-            links.append(page.get_link(obj))
-
+            links.append(page.get_link())
             page = page.parent
-
-            if obj is not None:
-                obj = obj.parent
 
         items = ["<li>{}</li>".format(x) for x in reversed(links)]
         items = "".join(items)
         
         return "<ul id=\"-path-navigation\">{}</ul>".format(items)
-
+    
     @xml
     def render_global_navigation(self, request):
         return "<ul id=\"-global-navigation\"></ul>"
@@ -455,28 +481,7 @@ class BrbnPage:
         content = self.render(request)
         return request.respond_ok(content, self.content_type)
 
-class BrbnTemplatePage(BrbnPage):
-    def __init__(self, app, parent, title, href, body_template):
-        super().__init__(app, parent, title, href)
-
-        self._body_template = BrbnTemplate(body_template, self)
-
-    @xml
-    def render_body(self, request):
-        return self._body_template.render(request)
-    
-class BrbnFilePage(BrbnPage):
-    def __init__(self, app, parent, title, href, file_path):
-        super().__init__(app, parent, title, href)
-
-        self.file_path = file_path
-
-    @xml
-    def render_body(self, request):
-        file = self.app.files_by_path[self.file_path]
-        return file.content.decode("utf-8")
-
-class BrbnTemplate:
+class Template:
     @staticmethod
     def _render_escaped(func):
         @_functools.wraps(func)
@@ -508,6 +513,9 @@ class BrbnTemplate:
         self._object = object
         self._elements = self._bind()
 
+    def __repr__(self):
+        return _format_repr(self)
+    
     def _bind(self):
         elems = list()
         tokens = _re.split("({.+?})", self._string)
@@ -543,46 +551,90 @@ class BrbnTemplate:
             out.append(elem)
 
         return "".join(out)
+
+class TemplatePage(Page):
+    def __init__(self, app, path, body_template, title=None, parent=None):
+        super().__init__(app, path, title=title, parent=parent)
+
+        self._body_template = Template(body_template, self)
+
+    @xml
+    def render_body(self, request):
+        return self._body_template.render(request)
     
-class _Request:
+class FilePage(Page):
+    def __init__(self, app, path, file_path, title=None, parent=None):
+        super().__init__(app, path, title=title, parent=parent)
+
+        self._file_path = file_path
+        self._body_content = None
+
+    def init(self):
+        super().init()
+
+        self._body_content = self.app.files_by_path[self._file_path].decode()
+
+    @xml
+    def render_body(self, request):
+        return self._body_content
+    
+class Request:
     def __init__(self, app, env, start_response):
-        self.app = app
-        self.env = env
-        self.start_response = start_response
+        self._app = app
+        self._env = env
+        self._start_response = start_response
 
-        self.abstract_path = None
-        self.parameters = None
+        self._parameters_by_name = None
+        self._response_headers = list()
 
-        self.response_headers = list()
-
-        self.session = None
-        self.object = None
+        self._session = None
+        self._object = None
 
     def __repr__(self):
         return _format_repr(self, self.path)
 
-    def _load(self):
-        self.abstract_path = self._parse_path()
-        self.parameters = self._parse_query_string()
+    @property
+    def app(self):
+        return self._app
+
+    @property
+    def env(self):
+        return self._env
+
+    @property
+    def parameters_by_name(self):
+        return self._parameters_by_name
+
+    @property
+    def response_headers(self):
+        return self._response_headers
+
+    @property
+    def session(self):
+        return self._session
+
+    @property
+    def object(self):
+        return self._object
+
+    @object.setter
+    def object(self, obj):
+        self._object = obj
+
+    def load(self):
+        self._parameters_by_name = self._parse_query_string()
 
         session_id = self._parse_session_cookie()
 
         if session_id is None:
-            self.session = _Session(self.app)
+            self.session = Session(self.app)
         else:
             try:
-                self.session = self.app._sessions_by_id[session_id]
+                self._session = self.app._sessions_by_id[session_id]
             except KeyError:
-                self.session = _Session(self.app)
+                self._session = Session(self.app)
 
-        self.session.touched = _datetime.datetime.now()
-    
-    def _parse_path(self):
-        path = self.path
-        path = path[1:].split("/")
-        path = [url_unescape(x) for x in path]
-
-        return path
+        self.session._touched = _datetime.datetime.now()
 
     def _parse_query_string(self):
         query_string = None
@@ -629,7 +681,7 @@ class _Request:
 
     def get(self, name):
         try:
-            return self.parameters[name][0]
+            return self.parameters_by_name[name][0]
         except KeyError:
             raise _RequestError("Parameter '{}' is missing".format(name))
         except IndexError:
@@ -648,13 +700,13 @@ class _Request:
     
     def respond(self, status, content=None, content_type=None):
         if self.session is not None:
-            # value = "session={}; Path=/; Secure; HttpOnly".format(self.session.id)
-            value = "session={}; Path=/; HttpOnly".format(self.session.id)
+            # value = "session={}; Path=/; Secure; HttpOnly".format(self.session._id)
+            value = "session={}; Path=/; HttpOnly".format(self.session._id)
             self.add_response_header("Set-Cookie", value)
         
         if content is None:
             self.add_response_header("Content-Length", 0)
-            self.start_response(status, self.response_headers)
+            self._start_response(status, self.response_headers)
             return (b"",)
 
         if isinstance(content, str):
@@ -668,7 +720,7 @@ class _Request:
         self.add_response_header("Content-Length", content_length)
         self.add_response_header("Content-Type", content_type)
 
-        self.start_response(status, self.response_headers)
+        self._start_response(status, self.response_headers)
 
         return (content,)
 
@@ -721,9 +773,62 @@ class _Request:
 class _RequestError(Exception):
     pass
 
-class _ErrorPage(BrbnTemplatePage):
+class _SitePage(TemplatePage):
+    template = """
+    <h1>{title}</h1>
+    <h2>Pages</h2>
+    {pages}
+    <h2>Files</h2>
+    {files}
+    """
+
+    def __init__(self, app, path, title="Site info", parent=None):
+        super().__init__(app, path, self.template, title=title, parent=parent)
+
+    @xml
+    def render_pages(self, request):
+        items = list()
+        
+        for path, page in sorted(self.app.pages_by_path.items()):
+            if page is self.app._error_page:
+                continue
+            
+            items.append(page.get_link())
+
+        items = "".join(["<li>{}</li>".format(x) for x in items])
+            
+        return "<ul>{}</ul>".format(items)
+
+    @xml
+    def render_files(self, request):
+        items = list()
+        
+        for path, file in sorted(self.app.files_by_path.items()):
+            items.append(file.get_link())
+
+        items = "".join(["<li>{}</li>".format(x) for x in items])
+            
+        return "<ul>{}</ul>".format(items)
+    
+class _RequestPage(Page):
+    def __init__(self, app, path):
+        super().__init__(app, path, title="Request info")
+
+        self.request_info = _RequestInfo()
+
+    @xml
+    def render_body(self, request):
+        return self.request_info.render(request)
+
+class _ErrorPage(TemplatePage):
+    template = """
+    <h1>{title}</h1>
+    <p>{message}</p>
+    <div class="hidden">{request_info}</div>
+    """
+
     def __init__(self, app):
-        super().__init__(app, None, "Error!", None, _error_template)
+        super().__init__(app, "/error", self.template, title="Error!")
 
         self._request_info = _RequestInfo()
 
@@ -743,9 +848,20 @@ class _ErrorPage(BrbnTemplatePage):
         
         return request.respond(status, content, self.content_type)
 
-class _RequestInfo(BrbnTemplate):
+class _RequestInfo(Template):
+    template = """
+    <h2>Traceback</h2>
+    {traceback}
+    <h2>Request</h2>
+    {request}
+    <h2>Application</h2>
+    {application}
+    <h2>System</h2>
+    {system}
+    """
+
     def __init__(self):
-        super().__init__(_info_template, self)
+        super().__init__(self.template, self)
 
     def _render_attributes(self, attrs):
         lines = list()
@@ -776,8 +892,7 @@ class _RequestInfo(BrbnTemplate):
             ("request.app", request.app),
             ("request.method", request.method),
             ("request.path", request.path),
-            ("request.abstract_path", request.abstract_path),
-            ("request.parameters", request.parameters),
+            ("request.parameters_by_name", request.parameters_by_name),
             ("request.response_headers", request.response_headers),
             ("request.object", request.object),
         )
@@ -789,8 +904,10 @@ class _RequestInfo(BrbnTemplate):
         attrs = (
             ("app.spec", request.app.spec),
             ("app.home", request.app.home),
+            ("app.brbn_home", request.app.brbn_home),
             ("app.files_by_path", request.app.files_by_path),
             ("app.pages_by_path", request.app.pages_by_path),
+            ("app.root_page", request.app.root_page),
         )
 
         return self._render_attributes(attrs)
@@ -811,13 +928,17 @@ class _RequestInfo(BrbnTemplate):
 
         return self._render_attributes(attrs)
 
-class _Session:
+class Session:
     def __init__(self, app):
-        self.app = app
-        self.id = str(_uuid.uuid4())
-        self.touched = _datetime.datetime.now()
+        self._app = app
+        self._id = str(_uuid.uuid4())
+        self._touched = _datetime.datetime.now()
 
-        self.app._sessions_by_id[self.id] = self
+        self.app._sessions_by_id[self._id] = self
+
+    @property
+    def app(self):
+        return self._app
 
 class _SessionExpireThread(_threading.Thread):
     def __init__(self, app):
@@ -844,32 +965,30 @@ class _SessionExpireThread(_threading.Thread):
         count = 0
 
         for session in list(self.app._sessions_by_id.values()):
-            if session.touched < when:
-                del self.app._sessions_by_id[session.id]
+            if session._touched < when:
+                del self.app._sessions_by_id[session._id]
                 count += 1
 
         _log.debug("Expired {} client sessions".format(count))
         
-class BrbnServer:
+class Server:
     def __init__(self, app, port=8000):
-        self.app = app
-        self.port = port
+        self._app = app
+        self._port = port
 
-        self._tornado_server = _HTTPServer(_WSGIContainer(self.app))
+        self._tornado_server = _HTTPServer(_WSGIContainer(self._app))
 
     def __repr__(self):
-        return _format_repr(self, self.port)
+        return _format_repr(self, self._app, self._port)
 
     def run(self):
         _log.info("Starting {}".format(self))
 
-        self.app.start()
-
         try:
-            self._tornado_server.listen(self.port)
+            self._tornado_server.listen(self._port)
         except OSError as e:
-            msg = "Cannot listen on port {}: {}".format(self.port, str(e))
-            raise BrbnError(msg)
+            msg = "Cannot listen on port {}: {}".format(self._port, str(e))
+            raise Error(msg)
 
         _IOLoop.current().start()
         
@@ -878,40 +997,29 @@ def _format_repr(obj, *args):
     strings = [str(x) for x in args]
     return "{}({})".format(cls, ",".join(strings))
 
-_hello_template = """
-<h1>{title}</h1>
+class Hello(Application):
+    template = """
+    <h1>{title}</h1>
+    <p>I am Brbn.</p>
+    <p><a href="/nope.html">404!</a> <a href="/explode.html">500!</a></p>
+    {request_info}
+    """
 
-<p>I am Brbn.</p>
-
-<p><a href="/nope.html">404!</a> <a href="/explode.html">500!</a></p>
-
-{request_info}
-"""
-
-class Hello(BrbnApplication):
     def __init__(self, home):
         super().__init__(home)
 
-        self.index_page = _IndexPage(self, None)
-        self.explode_page = _ExplodePage(self, self.index_page)
+        self.root_page = _HelloPage(self)
+        self.site_page = _SitePage(self, "/site")
+        self.request_page = _RequestPage(self, "/request")
+        self.explode_page = _ExplodePage(self)
 
-class _IndexPage(BrbnFilePage):
-    def __init__(self, app, parent):
-        super().__init__(app, parent, "Hello!", "/index.html", "/index.html.in")
-        
-class _RequestPage(BrbnTemplatePage):
-    def __init__(self, app, parent):
-        super().__init__(app, parent, "Hello!", "/index.html", _hello_template)
-
-        self.request_info = _RequestInfo()
-
-    @xml
-    def render_request_info(self, request):
-        return self.request_info.render(request)
-
-class _ExplodePage(BrbnPage):
-    def __init__(self, app, parent):
-        super().__init__(app, parent, "Explode!", "/explode.html")
+class _HelloPage(FilePage):
+    def __init__(self, app):
+        super().__init__(app, "/", "/hello.in", title="Brbn")
+       
+class _ExplodePage(Page):
+    def __init__(self, app):
+        super().__init__(app, "/explode", title="Explode!")
 
     def render_body(self, request):
         raise Exception("Exploding!")
