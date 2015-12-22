@@ -1,4 +1,4 @@
-#
+
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -129,9 +129,6 @@ def xml_unescape(string):
 class Error(Exception):
     pass
 
-class ObjectNotFound(Exception):
-    pass
-    
 class Application:
     def __init__(self, home=None):
         self._home = home
@@ -140,7 +137,6 @@ class Application:
         self._pages_by_path = dict()
         self._files_by_path = dict()
 
-        self._root_page = _SitePage(self, "/")
         self._error_page = _ErrorPage(self)
 
         self._sessions_by_id = dict()
@@ -282,302 +278,6 @@ class Application:
 
         return request.respond("200 OK", file.content, file.content_type)
 
-class File:
-    def __init__(self, app, path, content):
-        self._app = app
-        self._path = path
-        self._content = content
-
-        name, ext = _os.path.splitext(self.path)
-
-        self._content_type = _content_types_by_extension.get(ext, _text)
-        self._etag = _hashlib.sha1(self.content).hexdigest()[:8]
-        
-        self.app.files_by_path[self.path] = self
-        
-    def __repr__(self):
-        return _format_repr(self, self.path, self.etag)
-
-    @property
-    def app(self):
-        return self._app
-
-    @property
-    def path(self):
-        return self._path
-
-    @property
-    def content(self):
-        return self._content
-
-    @property
-    def content_type(self):
-        return self._content_type
-
-    @property
-    def etag(self):
-        return self._etag
-
-    def get_title(self):
-        return self.path
-
-    def get_href(self):
-        return self.path
-    
-    def get_link(self):
-        title = self.get_title()
-        href = self.get_href()
-
-        return "<a href=\"{}\">{}</a>".format(href, xml_escape(title))
-
-    def decode(self, encoding="utf-8", errors="strict"):
-        return self.content.decode(encoding, errors)
-
-class Page:
-    def __init__(self, app, path, title=None, parent=None):
-        self._app = app
-        self._path = path
-        self._title = title
-        self._parent = parent
-
-        name, ext = _os.path.splitext(self.path)
-
-        self._content_type = _content_types_by_extension.get(ext, _xhtml)
-
-        self._page_template = Template(_page_template, self)
-        self._head_template = Template(_head_template, self)
-        self._foot_template = Template(_foot_template, self)
-
-        #assert self.path not in self.app.pages_by_path, self.path
-
-        self.app.pages_by_path[self.path] = self
-    
-    def __repr__(self):
-        return _format_repr(self, self.path)
-
-    @property
-    def app(self):
-        return self._app
-
-    @property
-    def title(self):
-        return self._title
-
-    @property
-    def parent(self):
-        return self._parent
-
-    @property
-    def path(self):
-        return self._path
-
-    @property
-    def content_type(self):
-        return self._content_type
-
-    def init(self):
-        _log.debug("Initializing {}".format(self))
-
-        if self.parent is None and self.path != "/":
-            self._parent = self.app.root_page
-
-    def receive_request(self, request):
-        try:
-            request.object = self.get_object(request)
-        except ObjectNotFound as e:
-            return request.respond_not_found()
-
-        return self.send_response(request)
-
-    def get_href(self, **params):
-        if not params:
-            return self.path
-        
-        query_vars = list()
-
-        for name, value in sorted(params.items()):
-            query_vars.append("{}={}".format(url_escape(name), url_escape(value)))
-
-        query_vars = ";".join(query_vars)
-
-        return "{}?{}".format(self.path, query_vars)
-
-    def get_link(self, **params):
-        title = self.title
-        href = self.get_href(**params)
-
-        return "<a href=\"{}\">{}</a>".format(href, xml_escape(title))
-        
-    def get_object(self, request):
-        pass
-    
-    def get_object_name(self, request, obj):
-        if hasattr(obj, "name"):
-            return obj.name
-
-    def get_object_id(self, request, obj):
-        if hasattr(obj, "id"):
-            return obj.id
-
-    def get_object_href(self, request, obj):
-        key = self.get_object_id(request, obj)
-        return self.get_href(id=key)
-
-    def get_object_parent(self, request, obj):
-        if hasattr(obj, "parent"):
-            return obj.parent
-
-    def get_object_link(self, request, obj):
-        name = self.get_object_name(request, obj)
-        href = self.get_object_href(request, obj)
-
-        return "<a href=\"{}\">{}</a>".format(href, xml_escape(name))
-
-    @xml
-    def render(self, request):
-        return self._page_template.render(request)
-
-    @xml
-    def render_head(self, request):
-        return self._head_template.render(request)
-
-    @xml
-    def render_body(self, request):
-        raise NotImplementedError()
-
-    @xml
-    def render_foot(self, request):
-        return self._foot_template.render(request)
-
-    def render_title(self, request):
-        if request.object is not None:
-            return self.get_object_name(request, request.object)
-        
-        if self.title is not None:
-            return self.title
-
-    @xml
-    def render_path_navigation(self, request):
-        links = list()
-        page = self
-
-        links.append(page.render_title(request))
-        page = page.parent
-
-        while page is not None:
-            links.append(page.get_link())
-            page = page.parent
-
-        items = ["<li>{}</li>".format(x) for x in reversed(links)]
-        items = "".join(items)
-        
-        return "<ul id=\"-path-navigation\">{}</ul>".format(items)
-    
-    @xml
-    def render_global_navigation(self, request):
-        return "<ul id=\"-global-navigation\"></ul>"
-
-    def send_response(self, request):
-        content = self.render(request)
-        return request.respond_ok(content, self.content_type)
-
-class Template:
-    @staticmethod
-    def _render_escaped(func):
-        @_functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            result = func(*args, **kwargs)
-
-            if result is None:
-                return ""
-
-            return xml_escape(result)
-
-        return wrapper        
-    
-    @staticmethod
-    def _render_unescaped(func):
-        @_functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            result = func(*args, **kwargs)
-
-            if result is None:
-                return ""
-
-            return result
-
-        return wrapper
-
-    def __init__(self, string, object):
-        self._string = string
-        self._object = object
-        self._elements = self._bind()
-
-    def __repr__(self):
-        return _format_repr(self)
-    
-    def _bind(self):
-        elems = list()
-        tokens = _re.split("({.+?})", self._string)
-
-        for token in tokens:
-            if token.startswith("{") and token.endswith("}"):
-                meth_name = "render_{}".format(token[1:-1])
-                meth = getattr(self._object, meth_name, None)
-
-                if meth is not None:
-                    assert callable(meth), meth_name
-
-                    if hasattr(meth, "_xml"):
-                        meth = self._render_unescaped(meth)
-                    else:
-                        meth = self._render_escaped(meth)
-
-                    elems.append(meth)
-                    
-                    continue
-
-            elems.append(token)
-
-        return elems
-
-    def render(self, request):
-        out = list()
-
-        for elem in self._elements:
-            if callable(elem):
-                elem = elem(request)
-
-            out.append(elem)
-
-        return "".join(out)
-
-class TemplatePage(Page):
-    def __init__(self, app, path, body_template, title=None, parent=None):
-        super().__init__(app, path, title=title, parent=parent)
-
-        self._body_template = Template(body_template, self)
-
-    @xml
-    def render_body(self, request):
-        return self._body_template.render(request)
-    
-class FilePage(Page):
-    def __init__(self, app, path, file_path, title=None, parent=None):
-        super().__init__(app, path, title=title, parent=parent)
-
-        self._file_path = file_path
-        self._body_content = None
-
-    def init(self):
-        super().init()
-
-        self._body_content = self.app.files_by_path[self._file_path].decode()
-
-    @xml
-    def render_body(self, request):
-        return self._body_content
-    
 class Request:
     def __init__(self, app, env, start_response):
         self._app = app
@@ -773,7 +473,296 @@ class Request:
 class _RequestError(Exception):
     pass
 
-class _SitePage(TemplatePage):
+class File:
+    def __init__(self, app, path, content):
+        self._app = app
+        self._path = path
+        self._content = content
+
+        name, ext = _os.path.splitext(self.path)
+
+        self._content_type = _content_types_by_extension.get(ext, _text)
+        self._etag = _hashlib.sha1(self.content).hexdigest()[:8]
+        
+        self.app.files_by_path[self.path] = self
+        
+    def __repr__(self):
+        return _format_repr(self, self.path, self.etag)
+
+    @property
+    def app(self):
+        return self._app
+
+    @property
+    def path(self):
+        return self._path
+
+    @property
+    def content(self):
+        return self._content
+
+    @property
+    def content_type(self):
+        return self._content_type
+
+    @property
+    def etag(self):
+        return self._etag
+
+    def get_href(self):
+        return self.path
+    
+    def get_link(self):
+        href = self.get_href()
+        return "<a href=\"{}\">{}</a>".format(href, xml_escape(self.path))
+
+    def decode(self, encoding="utf-8", errors="strict"):
+        return self.content.decode(encoding, errors)
+
+class Page:
+    def __init__(self, app, path, template=None, title=None, parent=None):
+        self._app = app
+        self._path = path
+        self._title = title
+        self._parent = parent
+
+        name, ext = _os.path.splitext(self.path)
+
+        self._content_type = _content_types_by_extension.get(ext, _xhtml)
+
+        self._page_template = Template(_page_template, self)
+        self._head_template = Template(_head_template, self)
+        self._body_template = None
+        self._foot_template = Template(_foot_template, self)
+
+        if template is not None:
+            self._body_template = Template(template, self)
+
+        self.app.pages_by_path[self.path] = self
+    
+    def __repr__(self):
+        return _format_repr(self, self.path)
+
+    @property
+    def app(self):
+        return self._app
+
+    @property
+    def title(self):
+        return self._title
+
+    @property
+    def parent(self):
+        return self._parent
+
+    @property
+    def path(self):
+        return self._path
+
+    @property
+    def content_type(self):
+        return self._content_type
+
+    def init(self):
+        _log.debug("Initializing {}".format(self))
+
+        if self.parent is None and self.path != "/":
+            self._parent = self.app.root_page
+
+    def receive_request(self, request):
+        return self.send_response(request)
+
+    def get_href(self, **params):
+        if not params:
+            return self.path
+        
+        query_vars = list()
+
+        for name, value in sorted(params.items()):
+            query_vars.append("{}={}".format(url_escape(name), url_escape(value)))
+
+        query_vars = ";".join(query_vars)
+
+        return "{}?{}".format(self.path, query_vars)
+
+    def get_link(self, **params):
+        title = self.title
+        href = self.get_href(**params)
+
+        return "<a href=\"{}\">{}</a>".format(href, xml_escape(title))
+        
+    @xml
+    def render(self, request):
+        return self._page_template.render(request)
+
+    @xml
+    def render_head(self, request):
+        return self._head_template.render(request)
+
+    @xml
+    def render_body(self, request):
+        if self._body_template is not None:
+            return self._body_template.render(request)
+
+    @xml
+    def render_foot(self, request):
+        return self._foot_template.render(request)
+
+    def render_title(self, request):
+        return self.title
+
+    @xml
+    def render_path_navigation(self, request):
+        links = list()
+        page = self
+
+        links.append(page.render_title(request))
+        page = page.parent
+
+        while page is not None:
+            links.append(page.get_link())
+            page = page.parent
+
+        items = ["<li>{}</li>".format(x) for x in reversed(links)]
+        items = "".join(items)
+        
+        return "<ul id=\"-path-navigation\">{}</ul>".format(items)
+    
+    @xml
+    def render_global_navigation(self, request):
+        return "<ul id=\"-global-navigation\"></ul>"
+
+    def send_response(self, request):
+        content = self.render(request)
+        return request.respond_ok(content, self.content_type)
+
+class Template:
+    @staticmethod
+    def _render_escaped(func):
+        @_functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            result = func(*args, **kwargs)
+
+            if result is None:
+                return ""
+
+            return xml_escape(result)
+
+        return wrapper        
+    
+    @staticmethod
+    def _render_unescaped(func):
+        @_functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            result = func(*args, **kwargs)
+
+            if result is None:
+                return ""
+
+            return result
+
+        return wrapper
+
+    def __init__(self, string, object):
+        self._string = string
+        self._object = object
+        self._elements = self._bind()
+
+    def __repr__(self):
+        return _format_repr(self)
+    
+    def _bind(self):
+        elems = list()
+        tokens = _re.split("({.+?})", self._string)
+
+        for token in tokens:
+            if token.startswith("{") and token.endswith("}"):
+                meth_name = "render_{}".format(token[1:-1])
+                meth = getattr(self._object, meth_name, None)
+
+                if meth is not None:
+                    assert callable(meth), meth_name
+
+                    if hasattr(meth, "_xml"):
+                        meth = self._render_unescaped(meth)
+                    else:
+                        meth = self._render_escaped(meth)
+
+                    elems.append(meth)
+                    
+                    continue
+
+            elems.append(token)
+
+        return elems
+
+    def render(self, request):
+        out = list()
+
+        for elem in self._elements:
+            if callable(elem):
+                elem = elem(request)
+
+            out.append(elem)
+
+        return "".join(out)
+
+class FilePage(Page):
+    def __init__(self, app, path, file_path, title=None, parent=None):
+        super().__init__(app, path, title=title, parent=parent)
+
+        self._file_path = file_path
+
+    def init(self):
+        super().init()
+
+        file = self.app.files_by_path[self._file_path]
+        self._body_template = Template(file.decode(), self)
+
+class ObjectPage(Page):
+    def receive_request(self, request):
+        try:
+            request.object = self.get_object(request)
+        except ObjectNotFound as e:
+            return request.respond_not_found()
+
+        return self.send_response(request)
+
+    def get_object(self, request):
+        pass
+    
+    def get_object_name(self, request, obj):
+        if hasattr(obj, "name"):
+            return obj.name
+
+    def get_object_id(self, request, obj):
+        if hasattr(obj, "id"):
+            return obj.id
+
+    def get_object_href(self, request, obj):
+        key = self.get_object_id(request, obj)
+        return self.get_href(id=key)
+
+    def get_object_parent(self, request, obj):
+        if hasattr(obj, "parent"):
+            return obj.parent
+
+    def get_object_link(self, request, obj):
+        name = self.get_object_name(request, obj)
+        href = self.get_object_href(request, obj)
+
+        return "<a href=\"{}\">{}</a>".format(href, xml_escape(name))
+
+    def render_title(self, request):
+        if request.object is not None:
+            return self.get_object_name(request, request.object)
+
+        super().render_title(request)
+
+class ObjectNotFound(Exception):
+    pass
+    
+class _SitePage(Page):
     template = """
     <h1>{title}</h1>
     <h2>Pages</h2>
@@ -820,7 +809,7 @@ class _RequestPage(Page):
     def render_body(self, request):
         return self.request_info.render(request)
 
-class _ErrorPage(TemplatePage):
+class _ErrorPage(Page):
     template = """
     <h1>{title}</h1>
     <p>{message}</p>

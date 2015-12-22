@@ -18,7 +18,7 @@ class Example(brbn.Application):
         if request.path == "/hello.txt":
             return request.respond_ok("Hello!", "text/plain")
 
-        return self.send_file(request)</pre>
+        return super().receive_request(request)</pre>
 
 <h2>Run the application</h2>
 
