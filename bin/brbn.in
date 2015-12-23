@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3
 #
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
@@ -72,6 +72,9 @@ parser.add_argument("--port", metavar="PORT",
 parser.add_argument("--config", default=default_config_file, metavar="FILE",
                     help="Load configuration from FILE")
 
+parser.add_argument("--init-only", action="store_true",
+                    help="Initialize then exit")
+
 _log = logging.getLogger("brbn")
 
 def main():
@@ -100,6 +103,9 @@ def main():
 
     server = brbn.Server(app, port)
 
+    if args.init_only:
+        return
+    
     try:
         server.run()
     except brbn.Error as e:

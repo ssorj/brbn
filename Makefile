@@ -34,10 +34,10 @@ install: build
 
 .PHONY: test
 test: PREFIX := ${PWD}/install
-test: install
-	PATH=${PREFIX}/bin:${PATH} brbn --help > /dev/null
+test: clean install
+	${PREFIX}/bin/brbn --init-only
 
 .PHONY: devel
 devel: PREFIX := ${PWD}/install
 devel: clean install
-	PATH=${PREFIX}/bin:${PATH} brbn
+	${PREFIX}/bin/brbn
