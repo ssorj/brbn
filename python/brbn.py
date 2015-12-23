@@ -251,10 +251,8 @@ class Application:
         return self.send_response(request)
 
     def send_response(self, request):
-        path = request.path
-
         try:
-            page = self.pages_by_path[path]
+            page = self.pages_by_path[request.path]
         except KeyError:
             return self.send_file(request)
 
