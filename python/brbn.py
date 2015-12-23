@@ -747,8 +747,8 @@ class ObjectPage(Page):
             return obj.id
 
     def get_object_href(self, request, obj):
-        key = self.get_object_id(request, obj)
-        return self.get_href(id=key)
+        id = self.get_object_id(request, obj)
+        return self.get_href(request, id=id)
 
     def get_object_parent(self, request, obj):
         if hasattr(obj, "parent"):
