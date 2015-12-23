@@ -53,6 +53,7 @@ _content_types_by_extension = {
     ".jpeg": "image/jpeg",
     ".jpg": "image/jpeg",
     ".js": "application/javascript",
+    ".json": "application/json",
     ".svg": "image/svg+xml",
     ".txt": _text,
     ".woff": "application/font-woff",
@@ -247,17 +248,19 @@ class Application:
             return request.respond_error(e)
         
     def receive_request(self, request):
+        return self.send_response(request)
+
+    def send_response(self, request):
         path = request.path
 
         try:
             page = self.pages_by_path[path]
         except KeyError:
-            return self.send_response(request)
+            return self.send_file(request)
+
+        request._page = page
 
         return page.receive_request(request)
-
-    def send_response(self, request):
-        return self.send_file(request)
     
     def send_file(self, request, path=None):
         if path is None:
@@ -289,6 +292,7 @@ class Request:
         self._response_headers = list()
 
         self._session = None
+        self._page = None
         self._object = None
 
     def __repr__(self):
@@ -313,6 +317,10 @@ class Request:
     @property
     def session(self):
         return self._session
+
+    @property
+    def page(self):
+        return self._page
 
     @property
     def object(self):
@@ -510,11 +518,11 @@ class File:
     def etag(self):
         return self._etag
 
-    def get_href(self):
+    def get_href(self, request):
         return self.path
     
-    def get_link(self):
-        href = self.get_href()
+    def get_link(self, request):
+        href = self.get_href(request)
         return "<a href=\"{}\">{}</a>".format(href, xml_escape(self.path))
 
     def decode(self, encoding="utf-8", errors="strict"):
@@ -567,13 +575,13 @@ class Page:
     def init(self):
         _log.debug("Initializing {}".format(self))
 
-        if self.parent is None and self.path != "/":
+        if self.parent is None and self is not self.app.root_page:
             self._parent = self.app.root_page
 
     def receive_request(self, request):
         return self.send_response(request)
 
-    def get_href(self, **params):
+    def get_href(self, request, **params):
         if not params:
             return self.path
         
@@ -586,9 +594,9 @@ class Page:
 
         return "{}?{}".format(self.path, query_vars)
 
-    def get_link(self, **params):
+    def get_link(self, request, **params):
         title = self.title
-        href = self.get_href(**params)
+        href = self.get_href(request, **params)
 
         return "<a href=\"{}\">{}</a>".format(href, xml_escape(title))
         
@@ -621,7 +629,7 @@ class Page:
         page = page.parent
 
         while page is not None:
-            links.append(page.get_link())
+            links.append(page.get_link(request))
             page = page.parent
 
         items = ["<li>{}</li>".format(x) for x in reversed(links)]
@@ -763,7 +771,7 @@ class ObjectPage(Page):
 class ObjectNotFound(Exception):
     pass
     
-class _SitePage(Page):
+class _SiteInfoPage(Page):
     template = """
     <h1>{title}</h1>
     <h2>Pages</h2>
@@ -783,7 +791,7 @@ class _SitePage(Page):
             if page is self.app._error_page:
                 continue
             
-            items.append(page.get_link())
+            items.append(page.get_link(request))
 
         items = "".join(["<li>{}</li>".format(x) for x in items])
             
@@ -794,13 +802,13 @@ class _SitePage(Page):
         items = list()
         
         for path, file in sorted(self.app.files_by_path.items()):
-            items.append(file.get_link())
+            items.append(file.get_link(request))
 
         items = "".join(["<li>{}</li>".format(x) for x in items])
             
         return "<ul>{}</ul>".format(items)
     
-class _RequestPage(Page):
+class _RequestInfoPage(Page):
     def __init__(self, app, path):
         super().__init__(app, path, title="Request info")
 
@@ -861,9 +869,9 @@ class _RequestInfo(Template):
 
         for name, value in attrs:
             value = _pprint.pformat(value)
-            value = value.replace("\n", "\n{}".format(" " * 26))
+            value = value.replace("\n", "\n{}".format(" " * 28))
 
-            lines.append("{:24}  {}".format(name, value))
+            lines.append("{:26}  {}".format(name, value))
 
         return "<pre>{}</pre>".format(xml_escape("\n".join(lines)))
 
@@ -883,7 +891,8 @@ class _RequestInfo(Template):
             ("request.method", request.method),
             ("request.path", request.path),
             ("request.parameters_by_name", request.parameters_by_name),
-            ("request.response_headers", request.response_headers),
+            ("request.session", request.session),
+            ("request.page", request.page),
             ("request.object", request.object),
         )
         
@@ -909,11 +918,7 @@ class _RequestInfo(Template):
             ("sys.executable", _sys.executable),
             ("sys.path", _sys.path),
             ("sys.version", _sys.version),
-            ("sys.prefix", _sys.prefix),
-            ("sys.exec_prefix", _sys.exec_prefix),
             ("sys.platform", _sys.platform),
-            ("sys.defaultencoding", _sys.getdefaultencoding()),
-            ("sys.filesystemencoding", _sys.getfilesystemencoding()),
         )
 
         return self._render_attributes(attrs)
@@ -925,6 +930,9 @@ class Session:
         self._touched = _datetime.datetime.now()
 
         self.app._sessions_by_id[self._id] = self
+
+    def __repr__(self):
+        return _format_repr(self, self._id[:8])
 
     @property
     def app(self):
@@ -988,19 +996,12 @@ def _format_repr(obj, *args):
     return "{}({})".format(cls, ",".join(strings))
 
 class Hello(Application):
-    template = """
-    <h1>{title}</h1>
-    <p>I am Brbn.</p>
-    <p><a href="/nope.html">404!</a> <a href="/explode.html">500!</a></p>
-    {request_info}
-    """
-
     def __init__(self, home):
         super().__init__(home)
 
         self.root_page = _HelloPage(self)
-        self.site_page = _SitePage(self, "/site")
-        self.request_page = _RequestPage(self, "/request")
+        self.site_page = _SiteInfoPage(self, "/site")
+        self.request_page = _RequestInfoPage(self, "/request")
         self.explode_page = _ExplodePage(self)
 
 class _HelloPage(FilePage):

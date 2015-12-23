@@ -30,7 +30,7 @@ from argparse import ArgumentParser, RawDescriptionHelpFormatter
 default_brbn_home = os.path.normpath("@brbn_home@")
 brbn_home = os.environ.get("BRBN_HOME", default_brbn_home)
 
-sys.path.append(os.path.join(brbn_home, "python"))
+sys.path.insert(0, os.path.join(brbn_home, "python"))
 
 import brbn
 import faller
