@@ -127,6 +127,13 @@ def xml_unescape(string):
 
     return _xml_unescape(string)
 
+def compute_etag(content):
+    return _hashlib.sha1(content).hexdigest()[:8]
+
+def find_content_type(path, default=_text):
+    name, ext = _os.path.splitext(path)
+    return _content_types_by_extension.get(ext, default)
+
 class Error(Exception):
     pass
 
@@ -934,13 +941,6 @@ class Server:
             raise Error(msg)
 
         _IOLoop.current().start()
-
-def compute_etag(content):
-    return _hashlib.sha1(content).hexdigest()[:8]
-
-def find_content_type(path, default=_text):
-    name, ext = _os.path.splitext(path)
-    return _content_types_by_extension.get(ext, default)
 
 def _format_repr(obj, *args):
     cls = obj.__class__.__name__
