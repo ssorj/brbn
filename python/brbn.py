@@ -134,6 +134,11 @@ def find_content_type(path, default=_text):
     name, ext = _os.path.splitext(path)
     return _content_types_by_extension.get(ext, default)
 
+def _format_repr(obj, *args):
+    cls = obj.__class__.__name__
+    strings = [str(x) for x in args]
+    return "{}({})".format(cls, ",".join(strings))
+
 class Error(Exception):
     pass
 
@@ -209,11 +214,15 @@ class Application:
         _log.info("Initializing {}".format(self))
 
         if self.root_resource is None:
-            index = self.resources["/index.html"]
+            index = self.resources.get("/index.html")
 
-            self.resources["/"] = index
-            self.root_resource = index
+            if index is not None:
+                self.resources["/"] = index
+                self.root_resource = index
 
+        if self.root_resource is None:
+            raise Error("I can't find a root resource")
+                
         for path, resource in sorted(self.resources.items()):
             resource.init()
 
@@ -941,11 +950,6 @@ class Server:
             raise Error(msg)
 
         _IOLoop.current().start()
-
-def _format_repr(obj, *args):
-    cls = obj.__class__.__name__
-    strings = [str(x) for x in args]
-    return "{}({})".format(cls, ",".join(strings))
 
 class Hello(Application):
     def __init__(self, home):
