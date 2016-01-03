@@ -65,9 +65,9 @@ _page_template = """<!DOCTYPE html>
     <title>{title}</title>
     <meta charset="utf-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-    <link rel="stylesheet" href="/site.css" type="text/css"/>
+    <link rel="stylesheet" href="/app.css" type="text/css"/>
     <link rel="icon" href="" type="image/png"/>
-    <script src="/site.js" type="application/javascript" defer="defer"></script>
+    <script src="/app.js" type="application/javascript" defer="defer"></script>
   </head>
   <body>
     <div id="-head">
@@ -755,7 +755,7 @@ class ObjectPage(Page):
 class ObjectNotFound(Exception):
     pass
     
-class _SiteInfoPage(Page):
+class _AppInfoPage(Page):
     template = """
     <h1>{title}</h1>
     <h2>Resources</h2>
@@ -766,7 +766,7 @@ class _SiteInfoPage(Page):
         super().__init__(app, path, self.template)
 
     def get_title(self, request):
-        return "Site info"
+        return "App info"
         
     @xml
     def render_resources(self, request):
@@ -972,7 +972,7 @@ class Hello(Application):
         super().__init__(home)
 
         self.root_resource = _HelloPage(self)
-        self.site_page = _SiteInfoPage(self, "/site")
+        self.app_page = _AppInfoPage(self, "/app")
         self.request_page = _RequestInfoPage(self, "/request")
         self.explode_page = _ExplodePage(self)
 

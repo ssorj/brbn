@@ -3,7 +3,7 @@
 <p>I am Brbn.</p>
 
 <ul>
-  <li><a href="/site">Site info</a></li>
+  <li><a href="/app">App info</a></li>
   <li><a href="/request">Request info</a></li>
   <li><a href="/not-there">Not there!</a></li>
   <li><a href="/explode">Explode!</a></li>
