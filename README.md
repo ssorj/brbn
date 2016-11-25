@@ -10,3 +10,7 @@ Brbn serves HTTP requests
 
     #!/bin/sh
     exec brbn --home "${SOMEAPP_HOME:-@someapp_home@}" "$@" someapp:Application
+
+## Dependencies
+
+    tornado     python3-tornado
