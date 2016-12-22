@@ -978,7 +978,7 @@ class Hello(Application):
 
 class _HelloPage(FilePage):
     def __init__(self, app):
-        super().__init__(app, "/", "/hello.in")
+        super().__init__(app, "/", "/hello.html.in")
 
     def get_title(self, request):
         return "Brbn"
