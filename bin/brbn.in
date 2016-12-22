@@ -33,7 +33,7 @@ brbn_home = os.environ.get("BRBN_HOME", default_brbn_home)
 sys.path.insert(0, os.path.join(brbn_home, "python"))
 
 import brbn
-import faller
+import spindle
 
 user_dir = os.path.expanduser("~")
 default_config_file = os.path.join(user_dir, ".config", "brbn", "config.py")
@@ -78,12 +78,12 @@ parser.add_argument("--init-only", action="store_true",
 _log = logging.getLogger("brbn")
 
 def main():
-    threading.current_thread().name = "brbn"
+    spindle.set_thread_name("brbn")
+
+    spindle.add_logged_module("brbn")
+    spindle.add_logged_module("tornado")
     
-    faller.add_logged_module("brbn")
-    faller.add_logged_module("tornado")
-    
-    faller.setup_console_logging("info")
+    spindle.enable_console_logging("info")
 
     args = parser.parse_args()
     config = load_config(args)

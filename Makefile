@@ -1,6 +1,6 @@
 DESTDIR := ""
-PREFIX := /usr/local
-home = ${PREFIX}/share/brbn
+PREFIX := ${HOME}/.local
+BRBN_HOME = ${PREFIX}/share/brbn
 
 .PHONY: default
 default: devel
@@ -23,14 +23,13 @@ clean:
 .PHONY: build
 build:
 	mkdir -p build/bin
-	scripts/configure-file bin/brbn.in build/bin/brbn brbn_home ${home}
-	chmod 755 build/bin/brbn
+	scripts/configure-file -a brbn_home=${BRBN_HOME} bin/brbn.in build/bin/brbn
 
 .PHONY: install
 install: build
-	scripts/install-files python ${DESTDIR}${home}/python \*.py
-	scripts/install-files files ${DESTDIR}${home}/files \*
-	scripts/install-files build/bin ${DESTDIR}${PREFIX}/bin \*
+	scripts/install-files -n \*.py python ${DESTDIR}${BRBN_HOME}/python
+	scripts/install-files files ${DESTDIR}${BRBN_HOME}/files
+	scripts/install-files build/bin ${DESTDIR}${PREFIX}/bin
 
 .PHONY: test
 test: PREFIX := ${PWD}/install
@@ -41,3 +40,7 @@ test: clean install
 devel: PREFIX := ${PWD}/install
 devel: clean install
 	${PREFIX}/bin/brbn
+
+.PHONY: update-spindle
+update-spindle:
+	curl "https://raw.githubusercontent.com/ssorj/spindle/master/spindle.py" -o python/spindle.py
