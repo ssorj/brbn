@@ -588,13 +588,13 @@ class File(Resource):
         return self._content
     
 class Page(Resource):
-    def __init__(self, app, path, body):
+    def __init__(self, app, path, body_template):
         super().__init__(app, path)
 
         self._content_type = _xhtml
         self._page_template = Template(_page_template, self)
         self._head_template = Template(_head_template, self)
-        self._body_template = Template(body, self)
+        self._body_template = Template(body_template, self)
         self._foot_template = Template(_foot_template, self)
     
     @xml
@@ -726,7 +726,7 @@ class ObjectPage(Page):
 
         assert request.object is not None
 
-        return self.send_response(request)
+        return super().receive_request(request)
 
     def get_object(self, request):
         raise NotImplementedError()
