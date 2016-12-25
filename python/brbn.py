@@ -717,44 +717,6 @@ class FilePage(Page):
         file = self.app.resources[self._file_path]
         return file.render(request).decode()
 
-class ObjectPage(Page):
-    def receive_request(self, request):
-        try:
-            request.object = self.get_object(request)
-        except ObjectNotFound as e:
-            return request.respond_not_found()
-
-        assert request.object is not None
-
-        return super().receive_request(request)
-
-    def get_object(self, request):
-        raise NotImplementedError()
-    
-    def get_object_name(self, request, obj):
-        if hasattr(obj, "name"):
-            return obj.name
-
-    def get_object_id(self, request, obj):
-        if hasattr(obj, "id"):
-            return obj.id
-
-    def get_object_href(self, request, obj):
-        id = self.get_object_id(request, obj)
-        return self.get_href(request, id=id)
-
-    def get_object_link(self, request, obj):
-        name = self.get_object_name(request, obj)
-        href = self.get_object_href(request, obj)
-
-        return "<a href=\"{}\">{}</a>".format(href, xml_escape(name))
-
-    def get_title(self, request):
-        return self.get_object_name(request, request.object)
-
-class ObjectNotFound(Exception):
-    pass
-    
 class _AppInfoPage(Page):
     template = """
     <h1>{title}</h1>
