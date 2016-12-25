@@ -243,7 +243,7 @@ class Application:
 
     def _do_call(self, request):
         try:
-            request.load()
+            request._load()
         except _RequestError as e:
             _log.exception("Request error")
             return request.respond_error(e)
@@ -277,7 +277,6 @@ class Request:
 
         self._session = None
         self._resource = None
-        self._object = None
 
     def __repr__(self):
         return _format_repr(self, self.path)
@@ -306,15 +305,7 @@ class Request:
     def resource(self):
         return self._resource
 
-    @property
-    def object(self):
-        return self._object
-
-    @object.setter
-    def object(self, obj):
-        self._object = obj
-
-    def load(self):
+    def _load(self):
         self._parameters = self._parse_query_string()
 
         session_id = self._parse_session_cookie()
@@ -833,7 +824,6 @@ class _RequestInfo(Template):
             ("request.parameters", request.parameters),
             ("request.session", request.session),
             ("request.resource", request.resource),
-            ("request.object", request.object),
         )
         
         return self._render_attributes(attrs)
