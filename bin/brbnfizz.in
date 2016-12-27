@@ -1,0 +1,8 @@
+#!/bin/bash
+
+if [[ ! $FIZZ_HOME ]]; then
+    echo "FIZZ_HOME must be set"
+    exit 1
+fi
+
+exec brbn --home "$FIZZ_HOME" "$@" fizzdemo:Demo
