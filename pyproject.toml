@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "ssorj-brbn"
 version = "1.0.0"
 authors = [ { name = "Justin Ross", email = "jross@apache.org"} ]
-description = "Brbn serves HTTP requests"
+description = "Brbn serves HTTP"
 license = { file = "LICENSE.txt" }
 readme = "README.md"
 classifiers = [ "License :: OSI Approved :: Apache Software License" ]

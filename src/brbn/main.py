@@ -17,7 +17,10 @@
 # under the License.
 #
 
+import argparse as _argparse
 import asyncio as _asyncio
+import importlib as _importlib
+import inspect as _inspect
 import json as _json
 import logging as _logging
 import os as _os
@@ -26,7 +29,7 @@ import struct as _struct
 import traceback as _traceback
 import urllib as _urllib
 
-_log = _logging.getLogger("brbn")
+_log = _logging.getLogger("brbn.main")
 
 class Server:
     def __init__(self, app, host="", port=8080, csp="default-src 'self'"):
@@ -56,6 +59,18 @@ class Server:
         self._routes.append(route)
 
         _log.info(f"Route: {route}")
+
+    # A class decorator
+    def route(self, cls=None, path=None):
+        assert isinstance(path, str)
+
+        def wrap(cls):
+            self.add_route(path, cls(self.app))
+
+        if cls is None:
+            return wrap
+        else:
+            return wrap(cls)
 
     def run(self):
         import uvicorn
@@ -158,7 +173,7 @@ class Resource:
         content_type = await self.get_content_type(request, entity)
 
         assert isinstance(content, str), type(content)
-        assert isinstance(content_type, str), type(content_type)
+        assert content_type is None or isinstance(content_type, str), type(content_type)
 
         await request.respond(200, content.encode("utf-8"), content_type=content_type, etag=server_etag)
 
@@ -180,7 +195,7 @@ class Request:
         self._scope = scope
         self._receive = receive
         self._send = send
-        self._params = scope["brbn.path_params"]
+        self._params = scope.get("brbn.path_params", dict())
 
         query_string = scope["query_string"].decode("utf-8")
 
@@ -312,6 +327,40 @@ class FileResource(Resource):
         with open(fs_path, "r") as file:
             return file.read()
 
+class BrbnCommand:
+    def __init__(self):
+        self.parser = _argparse.ArgumentParser(description="Brbn serves HTTP")
+
+        self.parser.add_argument("module", metavar="MODULE",
+                                 help="XXX")
+        self.parser.add_argument("--host", metavar="HOST", default="localhost",
+                                 help="Listen for connections on HOST (default localhost)")
+        self.parser.add_argument("--port", metavar="PORT", default=8080, type=int,
+                                 help="Listen for connections on PORT (default 8080)")
+        self.parser.add_argument("--init-only", action="store_true",
+                                 help=_argparse.SUPPRESS)
+
+    def init(self):
+        self.args = self.parser.parse_args()
+
+    def main(self):
+        _logging.basicConfig(level=_logging.ERROR)
+        _logging.getLogger("brbn").setLevel(_logging.INFO)
+
+        try:
+            self.init()
+
+            app = _importlib.import_module(self.args.module)
+
+            self.server = Server(app, host=self.args.host, port=self.args.port)
+
+            if self.args.init_only:
+                return
+
+            self.server.run()
+        except KeyboardInterrupt:
+            pass
+
 def _format_repr(obj, *args):
     cls = obj.__class__.__name__
     strings = [str(x) for x in args]
@@ -319,4 +368,4 @@ def _format_repr(obj, *args):
     return "{}({})".format(cls, ", ".join(strings))
 
 def main():
-    print("Mainly on the plane")
+    BrbnCommand().main()
