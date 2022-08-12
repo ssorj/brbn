@@ -28,15 +28,17 @@ import re as _re
 import struct as _struct
 import traceback as _traceback
 import urllib as _urllib
+import uvicorn as _uvicorn
 
 _log = _logging.getLogger("brbn.main")
 
 class Server:
-    def __init__(self, app, host="", port=8080, csp="default-src 'self'"):
+    def __init__(self, app, host="", port=8080):
         self.app = app
         self.host = host
         self.port = port
-        self.csp = csp
+        self.csp = "default-src 'self'"
+        self.started = _asyncio.Event()
 
         self._startup_coros = list()
         self._shutdown_coros = list()
@@ -60,7 +62,7 @@ class Server:
 
         _log.info(f"Route: {route}")
 
-    # A class decorator
+    # A class decorator (potentially dubious)
     def route(self, cls=None, path=None):
         assert isinstance(path, str)
 
@@ -72,10 +74,20 @@ class Server:
         else:
             return wrap(cls)
 
-    def run(self):
-        import uvicorn
+    def run(self, host="", port=8080):
+        asyncio.run(self.run_async(host=host, port=port))
 
-        uvicorn.run(self, host=self.host, port=self.port, log_level="error")
+    async def run_async(self, host=None, port=None):
+        config = _uvicorn.Config(self, host=host, port=port, log_level="error")
+        server = _UvicornServer(config, self.started)
+
+        server.config.setup_event_loop()
+
+        try:
+            await server.serve()
+        except _asyncio.CancelledError:
+            await server.shutdown()
+            raise
 
     async def __call__(self, scope, receive, send):
         type = scope["type"]
@@ -117,6 +129,15 @@ class Server:
             return
         else:
             assert False, type
+
+class _UvicornServer(_uvicorn.Server):
+    def __init__(self, config, started):
+        super().__init__(config=config)
+        self._brbn_started = started
+
+    async def startup(self, sockets=None):
+        await super().startup(sockets=sockets)
+        self._brbn_started.set()
 
 class _Route:
     def __init__(self, path, resource):

@@ -18,38 +18,41 @@
 #
 
 from .plano import *
+from threading import Thread
 
-# test_cert_dir = join(get_parent_dir(__file__), "testcerts")
+import asyncio
+import httpx
+import brbn
+import brbn.testapp
 
-# class TestServer:
-#     def __init__(self, **extra_args):
-#         port = get_random_port()
-#         args = " ".join(["--{} {}".format(k, v) for k, v in extra_args.items()])
+class TestServer:
+    async def __aenter__(self):
+        port = get_random_port()
 
-#         self.proc = start(f"qbroker --verbose --port {port} {args}")
-#         self.proc.url = f"//localhost:{port}/queue1"
+        self.task = asyncio.create_task(brbn.testapp.run_async("localhost", port))
 
-#     def __enter__(self):
-#         return self.proc
+        await brbn.testapp.server.started.wait()
 
-#     def __exit__(self, exc_type, exc_value, traceback):
-#         stop(self.proc)
+        return f"http://localhost:{port}"
 
-# @test(timeout=5)
-# def version():
-#     result = call("brbn --version")
+    async def __aexit__(self, exc_type, exc_value, traceback):
+        self.task.cancel()
 
-# @test(timeout=5)
-# def logging():
-#     result = call("brbn --version")
-#     assert result
-
-#     run("brbn --init-only --quiet")
-#     run("brbn --init-only --verbose")
+        try:
+            await self.task
+        except asyncio.CancelledError:
+            pass
 
 @test
-def hello():
-    print("Hi")
+def anything_at_all():
+    async def test():
+        async with TestServer() as url:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url)
+
+        print(response.text)
+
+    asyncio.run(test())
 
 def main():
     from .plano.commands import PlanoTestCommand
