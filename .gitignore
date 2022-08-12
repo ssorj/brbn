@@ -1,2 +1,8 @@
-build
-install
+src/brbn/plano/
+build/
+dist/
+MANIFEST
+*.egg-info
+__pycache__/
+/.coverage
+/htmlcov
