@@ -47,6 +47,28 @@ def test(app):
         run(f". {dir}/bin/activate && brbn-self-test", shell=True)
 
 @command
+def coverage(app):
+    build(app)
+
+    wheel = find_wheel()
+
+    with temp_dir() as dir:
+        run(f"python -m venv {dir}")
+        run(f". {dir}/bin/activate && pip install --force-reinstall {wheel}", shell=True)
+
+        path = call(f". {dir}/bin/activate && command -v brbn-self-test", shell=True).strip()
+        expected_path = f"{dir}/bin/brbn-self-test"
+
+        assert path == expected_path, (path, expected_path)
+
+        run(f". {dir}/bin/activate && PYTHONPATH={dir}/lib/python3.10/site-packages coverage3 run {dir}/bin/brbn-self-test", shell=True)
+
+        run("coverage3 report")
+        run("coverage3 html")
+
+        print(f"file:{get_current_dir()}/htmlcov/index.html")
+
+@command
 def install(app):
     build(app)
 
