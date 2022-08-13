@@ -19,8 +19,8 @@
 
 @command
 def build():
-    # check_module("build")
-    # check_module("wheel")
+    check_module("build")
+    check_module("wheel")
 
     remove("src/brbn/plano")
     copy("subrepos/plano/src/plano", "src/brbn/plano")
@@ -28,8 +28,8 @@ def build():
     run("python -m build")
 
 @command
-def test():
-    # check_module("venv")
+def test(coverage=False):
+    check_module("venv")
 
     build()
 
@@ -44,22 +44,13 @@ def test():
 
         assert path == expected_path, (path, expected_path)
 
-        run(f". {dir}/bin/activate && brbn-self-test", shell=True)
-
-@command
-def coverage():
-    build()
-
-    wheel = find_wheel()
-
-    with temp_dir() as dir:
-        run(f"python -m venv {dir}")
-        run(f". {dir}/bin/activate && pip install --force-reinstall {wheel}", shell=True)
-        run(f". {dir}/bin/activate && coverage run --source brbn {dir}/bin/brbn-self-test", shell=True)
-        run("coverage report")
-        run("coverage html")
-
-        print(f"file:{get_current_dir()}/htmlcov/index.html")
+        if coverage:
+            run(f". {dir}/bin/activate && coverage run --source brbn {dir}/bin/brbn-self-test", shell=True)
+            run("coverage report")
+            run("coverage html")
+            print(f"file:{get_current_dir()}/htmlcov/index.html")
+        else:
+            run(f". {dir}/bin/activate && brbn-self-test", shell=True)
 
 @command
 def install():
