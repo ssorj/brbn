@@ -44,15 +44,12 @@ class TestServer:
             pass
 
 @test
-def anything_at_all():
-    async def test():
-        async with TestServer() as url:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(url)
+async def anything_at_all():
+    async with TestServer() as url:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url)
 
-        print(response.text)
-
-    asyncio.run(test())
+    print(response.text)
 
 def main():
     from .plano.commands import PlanoTestCommand
