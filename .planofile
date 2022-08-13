@@ -18,7 +18,7 @@
 #
 
 @command
-def build(app):
+def build():
     # check_module("build")
     # check_module("wheel")
 
@@ -28,10 +28,10 @@ def build(app):
     run("python -m build")
 
 @command
-def test(app):
+def test():
     # check_module("venv")
 
-    build(app)
+    build()
 
     wheel = find_wheel()
 
@@ -47,8 +47,8 @@ def test(app):
         run(f". {dir}/bin/activate && brbn-self-test", shell=True)
 
 @command
-def coverage(app):
-    build(app)
+def coverage():
+    build()
 
     wheel = find_wheel()
 
@@ -62,27 +62,27 @@ def coverage(app):
         print(f"file:{get_current_dir()}/htmlcov/index.html")
 
 @command
-def install(app):
-    build(app)
+def install():
+    build()
 
     wheel = find_wheel()
 
     run(f"pip install --user --force-reinstall {wheel}")
 
 @command
-def clean(app):
+def clean():
     remove("dist")
     remove("src/brbn/__pycache__")
 
 @command
-def upload(app):
+def upload():
     """
     Upload the package to PyPI
     """
 
     check_program("twine", "pip install twine")
 
-    build(app)
+    build()
 
     run("twine upload --repository testpypi dist/*", shell=True)
 
