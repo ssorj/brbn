@@ -1,12 +1,17 @@
-import brbn
+from brbn import *
+from brbn.plano import *
 
 app = object()
-server = brbn.Server(app)
+server = Server(app)
 
-@server.route(path="/")
-class MainResource(brbn.Resource):
+class MainResource(Resource):
     async def render(self, request, entity):
-        return "Halloo"
+        return "main"
 
-async def run_async(host, port):
-    await server.run_async(host=host, port=port)
+temp_dir = make_temp_dir()
+
+write(join(temp_dir, "alpha.txt"), "alpha")
+write(join(temp_dir, "beta.html"), "beta")
+
+server.add_route("/", MainResource(app))
+server.add_route("/greek/*", FileResource(app, temp_dir))

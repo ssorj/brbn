@@ -17,21 +17,23 @@
 # under the License.
 #
 
+from .main import *
 from .plano import *
+from . import testapp
 from threading import Thread
 
 import asyncio
 import httpx
-import brbn
-import brbn.testapp
 
 class TestServer:
+    def __init__(self, server=testapp.server):
+        self.server = server
+
     async def __aenter__(self):
         port = get_random_port()
 
-        self.task = asyncio.create_task(brbn.testapp.run_async("localhost", port))
-
-        await brbn.testapp.server.started.wait()
+        self.task = asyncio.create_task(self.server.run_async("localhost", port))
+        await self.server.started.wait()
 
         return f"http://localhost:{port}"
 
@@ -44,15 +46,71 @@ class TestServer:
             pass
 
 @test
-async def anything_at_all():
+async def server():
+    server = Server(object())
+
+    assert server.__repr__().startswith("Server"), server.__repr__()
+
+    async def hello():
+        print("Hello")
+
+    async def goodbye():
+        print("Goodbye")
+
+    server.add_startup_task(hello())
+    server.add_shutdown_task(goodbye())
+
+    async with TestServer(server):
+        pass
+
+@test
+def request():
+    server = Server(object())
+    scope = {
+        "method": "GET",
+        "path": "/",
+        "query_string": "bob=1&alice=2".encode("utf-8"),
+    }
+
+    request = Request(server, scope, None, None)
+
+    assert request.__repr__().startswith("Request"), request.__repr__()
+
+    result = request.get("bob")
+    assert result == "1", result
+
+    result = request.get("frank", "10")
+    assert result == "10", result
+
+    result = request.require("alice")
+    assert result == "2", result
+
+@test
+async def client_server():
     async with TestServer() as url:
         async with httpx.AsyncClient() as client:
             response = await client.get(url)
+            assert response.status_code == 200, response.status_code
+            assert response.text == "main", response.text
 
-    print(response.text)
+            response = await client.get(f"{url}/greek/alpha.txt")
+            assert response.status_code == 200, response.status_code
+            assert response.headers["content-type"].startswith("text/plain"), response.headers["content-type"]
+            assert response.text == "alpha", response.text
+
+            response = await client.get(f"{url}/greek/beta.html")
+            assert response.status_code == 200, response.status_code
+            assert response.headers["content-type"].startswith("text/html"), response.headers["content-type"]
+            assert "beta" in response.text, response.text
+
+            response = await client.get(f"{url}/not-there")
+            assert response.status_code == 404, response.status_code
+
+            response = await client.get(f"{url}/greek/not-there")
+            assert response.status_code == 404, response.status_code
 
 def main():
     from .plano.commands import PlanoTestCommand
-    import brbn.tests
+    from . import tests
 
-    PlanoTestCommand(brbn.tests).main()
+    PlanoTestCommand(tests).main()

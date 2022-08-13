@@ -62,17 +62,17 @@ class Server:
 
         _log.info(f"Route: {route}")
 
-    # A class decorator (potentially dubious)
-    def route(self, cls=None, path=None):
-        assert isinstance(path, str)
+    # # A class decorator (potentially dubious)
+    # def route(self, cls=None, path=None):
+    #     assert isinstance(path, str)
 
-        def wrap(cls):
-            self.add_route(path, cls(self.app))
+    #     def wrap(cls):
+    #         self.add_route(path, cls(self.app))
 
-        if cls is None:
-            return wrap
-        else:
-            return wrap(cls)
+    #     if cls is None:
+    #         return wrap
+    #     else:
+    #         return wrap(cls)
 
     def run(self, host="", port=8080):
         asyncio.run(self.run_async(host=host, port=port))
@@ -97,7 +97,7 @@ class Server:
         elif type == "lifespan":
             await self._handle_lifespan_event(scope, receive, send)
         else:
-            assert False, type
+            assert False, type # pragma: nocover
 
     async def _handle_http_event(self, scope, receive, send):
         path = scope["path"]
@@ -128,7 +128,7 @@ class Server:
             await send({"type": "lifespan.shutdown.complete"})
             return
         else:
-            assert False, type
+            assert False, type # pragma: nocover
 
 class _UvicornServer(_uvicorn.Server):
     def __init__(self, config, started):
