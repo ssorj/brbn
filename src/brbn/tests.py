@@ -49,7 +49,8 @@ class TestServer:
 async def server():
     server = Server(object())
 
-    assert server.__repr__().startswith("Server"), server.__repr__()
+    result = server.__repr__()
+    assert result.startswith("Server"), result
 
     async def hello():
         print("Hello")
@@ -74,7 +75,8 @@ def request():
 
     request = Request(server, scope, None, None)
 
-    assert request.__repr__().startswith("Request"), request.__repr__()
+    result = request.__repr__()
+    assert result.startswith("Request"), result
 
     result = request.get("bob")
     assert result == "1", result

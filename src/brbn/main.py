@@ -62,20 +62,8 @@ class Server:
 
         _log.info(f"Route: {route}")
 
-    # # A class decorator (potentially dubious)
-    # def route(self, cls=None, path=None):
-    #     assert isinstance(path, str)
-
-    #     def wrap(cls):
-    #         self.add_route(path, cls(self.app))
-
-    #     if cls is None:
-    #         return wrap
-    #     else:
-    #         return wrap(cls)
-
     def run(self, host="", port=8080):
-        asyncio.run(self.run_async(host=host, port=port))
+        _asyncio.run(self.run_async(host=host, port=port))
 
     async def run_async(self, host=None, port=None):
         config = _uvicorn.Config(self, host=host, port=port, log_level="error")
@@ -349,11 +337,10 @@ class FileResource(Resource):
             return file.read()
 
 class BrbnCommand:
-    def __init__(self):
+    def __init__(self, server=None):
+        self.server = server
         self.parser = _argparse.ArgumentParser(description="Brbn serves HTTP")
 
-        self.parser.add_argument("module", metavar="MODULE",
-                                 help="XXX")
         self.parser.add_argument("--host", metavar="HOST", default="localhost",
                                  help="Listen for connections on HOST (default localhost)")
         self.parser.add_argument("--port", metavar="PORT", default=8080, type=int,
@@ -361,24 +348,27 @@ class BrbnCommand:
         self.parser.add_argument("--init-only", action="store_true",
                                  help=_argparse.SUPPRESS)
 
-    def init(self):
-        self.args = self.parser.parse_args()
+        if self.server is None:
+            self.parser.add_argument("server", metavar="MODULE:SERVER",
+                                     help="The module and name of a Brbn Server object")
 
     def main(self):
         _logging.basicConfig(level=_logging.ERROR)
         _logging.getLogger("brbn").setLevel(_logging.INFO)
+        _logging.getLogger("uvicorn").setLevel(_logging.INFO)
+
+        self.args = self.parser.parse_args()
+
+        if self.server is None:
+            module_name, server_name = self.args.server.split(":", 1)
+            module = _importlib.import_module(module_name)
+            self.server = getattr(module, server_name)
+
+        if self.args.init_only:
+            return
 
         try:
-            self.init()
-
-            app = _importlib.import_module(self.args.module)
-
-            self.server = Server(app, host=self.args.host, port=self.args.port)
-
-            if self.args.init_only:
-                return
-
-            self.server.run()
+            self.server.run(host=self.args.host, port=self.args.port)
         except KeyboardInterrupt:
             pass
 
