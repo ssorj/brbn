@@ -345,6 +345,10 @@ class BrbnCommand:
                                  help="Listen for connections on HOST (default localhost)")
         self.parser.add_argument("--port", metavar="PORT", default=8080, type=int,
                                  help="Listen for connections on PORT (default 8080)")
+        self.parser.add_argument("--quiet", action="store_true",
+                                 help="Print no logging to the console")
+        self.parser.add_argument("--verbose", action="store_true",
+                                 help="Print detailed logging to the console")
         self.parser.add_argument("--init-only", action="store_true",
                                  help=_argparse.SUPPRESS)
 
@@ -352,7 +356,7 @@ class BrbnCommand:
             self.parser.add_argument("server", metavar="MODULE:SERVER",
                                      help="The module and name of a Brbn Server object")
 
-    def main(self):
+    def init(self):
         _logging.basicConfig(level=_logging.ERROR)
         _logging.getLogger("brbn").setLevel(_logging.INFO)
         _logging.getLogger("uvicorn").setLevel(_logging.INFO)
@@ -363,6 +367,9 @@ class BrbnCommand:
             module_name, server_name = self.args.server.split(":", 1)
             module = _importlib.import_module(module_name)
             self.server = getattr(module, server_name)
+
+    def main(self):
+        self.init()
 
         if self.args.init_only:
             return
