@@ -47,7 +47,7 @@ class TestServer:
 
 @test
 async def server():
-    server = Server(object())
+    server = Server()
 
     result = server.__repr__()
     assert result.startswith("Server"), result
@@ -66,7 +66,7 @@ async def server():
 
 @test
 def request():
-    server = Server(object())
+    server = Server()
     scope = {
         "method": "GET",
         "path": "/",

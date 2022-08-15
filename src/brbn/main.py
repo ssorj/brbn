@@ -33,10 +33,7 @@ import uvicorn as _uvicorn
 _log = _logging.getLogger("brbn.main")
 
 class Server:
-    def __init__(self, app, host="", port=8080):
-        self.app = app
-        self.host = host
-        self.port = port
+    def __init__(self):
         self.csp = "default-src 'self'"
         self.started = _asyncio.Event()
 
@@ -45,7 +42,7 @@ class Server:
         self._routes = list()
 
     def __repr__(self):
-        return _format_repr(self, self.app, self.host, self.port)
+        return _format_repr(self)
 
     def add_startup_task(self, coro):
         self._startup_coros.append(coro)
@@ -98,7 +95,7 @@ class Server:
                 await route.resource(self, scope, receive, send)
                 return
 
-        await Request(self, scope, receive, send).respond(404, b"Not found")
+        await Request(self, scope, receive, send).respond(404, "Not found")
 
     async def _handle_lifespan_event(self, scope, receive, send):
         message = await receive()
@@ -141,7 +138,7 @@ class _Route:
         return f"{self.path} -> {self.resource}"
 
 class Resource:
-    def __init__(self, app, methods=("GET", "HEAD", "POST")):
+    def __init__(self, app=None, methods=("GET", "HEAD", "POST")):
         self.app = app
         self.methods = methods
 
@@ -160,7 +157,7 @@ class Resource:
 
     async def handle(self, request):
         if request.method not in self.methods:
-            await request.respond(400, b"Bad request: Illegal method")
+            await request.respond(400, "Bad request: Illegal method")
             return
 
         entity = await self.process(request)
@@ -171,20 +168,17 @@ class Resource:
             client_etag = request.get_header("if-none-match")
 
             if client_etag == server_etag:
-                await request.respond(304, b"")
+                await request.respond(304)
                 return
 
         if request.method == "HEAD":
-            await request.respond(200, b"", etag=server_etag)
+            await request.respond(200, etag=server_etag)
             return
 
         content = await self.render(request, entity)
         content_type = await self.get_content_type(request, entity)
 
-        assert isinstance(content, str), type(content)
-        assert content_type is None or isinstance(content_type, str), type(content_type)
-
-        await request.respond(200, content.encode("utf-8"), content_type=content_type, etag=server_etag)
+        await request.respond(200, content, content_type=content_type, etag=server_etag)
 
     async def process(self, request):
         return None
@@ -245,7 +239,7 @@ class Request:
         if type == "http.request":
             assert message.get("more_body") in (None, False) # XXX Need to handle streamed data
 
-            return message.get("body", b"")
+            return message.get("body", "")
         elif type == "http.disconnect":
             assert False # XXX Need a disconnect exception
         else:
@@ -254,9 +248,9 @@ class Request:
     async def parse_json(self) -> object:
         return _json.loads(self.get_body())
 
-    async def respond(self, code, content, content_type=None, etag=None):
+    async def respond(self, code, content=b"", content_type=None, etag=None):
         assert isinstance(code, int), type(code)
-        assert isinstance(content, bytes), type(content)
+        assert content is None or isinstance(content, (bytes, str)), type(content)
         assert content_type is None or isinstance(content_type, str), type(content_type)
         assert etag is None or isinstance(etag, str), type(etag)
 
@@ -271,6 +265,9 @@ class Request:
 
         if etag is not None:
             headers.append((b"etag", etag.encode("utf-8")))
+
+        if isinstance(content, str):
+            content = content.encode("utf-8")
 
         start_message = {
             "type": "http.response.start",
@@ -302,19 +299,19 @@ _content_types_by_extension = {
 }
 
 class FileResource(Resource):
-    def __init__(self, app, static_dir, subpath=None):
-        super().__init__(app, methods=("GET", "HEAD"))
+    def __init__(self, app=None, dir=None, subpath=None):
+        super().__init__(app=app, methods=("GET", "HEAD"))
 
-        assert _os.path.isdir(static_dir), static_dir
+        assert _os.path.isdir(dir), dir
 
-        self.static_dir = static_dir
+        self.dir = dir
         self.subpath = subpath
 
     async def handle(self, request):
         try:
             await super().handle(request)
         except FileNotFoundError:
-            await request.respond(404, b"Not found")
+            await request.respond(404, "Not found")
 
     async def process(self, request):
         subpath = request.get("subpath", self.subpath)
@@ -322,7 +319,7 @@ class FileResource(Resource):
         assert subpath is not None
         assert subpath.startswith("/"), subpath
 
-        return _os.path.join(self.static_dir, subpath[1:])
+        return _os.path.join(self.dir, subpath[1:])
 
     async def get_etag(self, request, fs_path):
         mtime = _os.path.getmtime(fs_path)
