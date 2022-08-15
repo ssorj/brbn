@@ -74,6 +74,21 @@ class Server:
             await server.shutdown()
             raise
 
+    # async def start(self):
+    #     config = _uvicorn.Config(self, host=host, port=port, log_level="error")
+    #     server = _UvicornServer(config, self.started)
+
+    #     server.config.setup_event_loop()
+
+    #     try:
+    #         await server.serve()
+    #     except _asyncio.CancelledError:
+    #         await server.shutdown()
+    #         raise
+
+    # def stop(self):
+    #     pass
+
     async def __call__(self, scope, receive, send):
         type = scope["type"]
 
@@ -382,5 +397,5 @@ def _format_repr(obj, *args):
 
     return "{}({})".format(cls, ", ".join(strings))
 
-def main():
+def main(): # pragma: nocover
     BrbnCommand().main()
