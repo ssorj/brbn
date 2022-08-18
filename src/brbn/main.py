@@ -41,6 +41,8 @@ class Server:
         self._shutdown_coros = list()
         self._routes = list()
 
+        self._task = None
+
     def __repr__(self):
         return _format_repr(self)
 
@@ -60,9 +62,36 @@ class Server:
         _log.info(f"Route: {route}")
 
     def run(self, host="", port=8080):
-        _asyncio.run(self.run_async(host=host, port=port))
+        _asyncio.run(self._run(host=host, port=port))
 
-    async def run_async(self, host=None, port=None):
+    async def _run(self, host=None, port=None):
+        assert self._task is None, self._task
+
+        self._task = _asyncio.create_task(self._run_uvicorn(host, port))
+
+        await self._task
+
+    async def start(self, host=None, port=None):
+        assert self._task is None, self._task
+
+        self._task = _asyncio.create_task(self._run_uvicorn(host, port))
+
+        await self.started.wait()
+
+    async def stop(self):
+        if self._task is None:
+            return
+
+        self._task.cancel()
+
+        try:
+            await self._task
+        except _asyncio.CancelledError:
+            pass
+        finally:
+            self._task = None
+
+    async def _run_uvicorn(self, host=None, port=None):
         config = _uvicorn.Config(self, host=host, port=port, log_level="error")
         server = _UvicornServer(config, self.started)
 
@@ -73,21 +102,6 @@ class Server:
         except _asyncio.CancelledError:
             await server.shutdown()
             raise
-
-    # async def start(self):
-    #     config = _uvicorn.Config(self, host=host, port=port, log_level="error")
-    #     server = _UvicornServer(config, self.started)
-
-    #     server.config.setup_event_loop()
-
-    #     try:
-    #         await server.serve()
-    #     except _asyncio.CancelledError:
-    #         await server.shutdown()
-    #         raise
-
-    # def stop(self):
-    #     pass
 
     async def __call__(self, scope, receive, send):
         type = scope["type"]
@@ -165,10 +179,13 @@ class Resource:
 
         try:
             await self.handle(request)
+        except BadRequestError as e:
+            await request.respond(400, str(e))
         except Exception as e:
             _log.exception(e)
             trace = _traceback.format_exc()
-            await request.respond(500, trace.encode("utf-8"))
+            print(111, trace) # Need this in debug mode
+            await request.respond(500, trace)
 
     async def handle(self, request):
         if request.method not in self.methods:
@@ -255,13 +272,13 @@ class Request:
             assert message.get("more_body") in (None, False) # XXX Need to handle streamed data
 
             return message.get("body", "")
-        elif type == "http.disconnect":
-            assert False # XXX Need a disconnect exception
+        elif type == "http.disconnect": # pragma: nocover
+            assert False, type # XXX Need a disconnect exception
         else:
-            assert False
+            assert False, type # pragma: nocover
 
     async def parse_json(self) -> object:
-        return _json.loads(self.get_body())
+        return _json.loads(await self.get_body())
 
     async def respond(self, code, content=b"", content_type=None, etag=None):
         assert isinstance(code, int), type(code)
@@ -298,6 +315,9 @@ class Request:
 
         await self._send(start_message)
         await self._send(body_message)
+
+class BadRequestError(Exception):
+    pass
 
 _content_types_by_extension = {
     ".css": "text/css;charset=UTF-8",
@@ -368,20 +388,20 @@ class BrbnCommand:
             self.parser.add_argument("server", metavar="MODULE:SERVER",
                                      help="The module and name of a Brbn Server object")
 
-    def init(self):
+    def init(self, args=None):
         _logging.basicConfig(level=_logging.ERROR)
         _logging.getLogger("brbn").setLevel(_logging.INFO)
         _logging.getLogger("uvicorn").setLevel(_logging.INFO)
 
-        self.args = self.parser.parse_args()
+        self.args = self.parser.parse_args(args=args)
 
         if self.server is None:
             module_name, server_name = self.args.server.split(":", 1)
             module = _importlib.import_module(module_name)
             self.server = getattr(module, server_name)
 
-    def main(self):
-        self.init()
+    def main(self, args=None):
+        self.init(args=args)
 
         if self.args.init_only:
             return

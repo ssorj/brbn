@@ -32,18 +32,12 @@ class TestServer:
     async def __aenter__(self):
         port = get_random_port()
 
-        self.task = asyncio.create_task(self.server.run_async("localhost", port))
-        await self.server.started.wait()
+        await self.server.start(host="localhost", port=port)
 
         return f"http://localhost:{port}"
 
     async def __aexit__(self, exc_type, exc_value, traceback):
-        self.task.cancel()
-
-        try:
-            await self.task
-        except asyncio.CancelledError:
-            pass
+        await self.server.stop()
 
 @test
 async def server():
@@ -52,12 +46,16 @@ async def server():
     result = server.__repr__()
     assert result.startswith("Server"), result
 
+    await server.start(host="localhost", port=get_random_port())
+    await server.stop()
+
     async def hello():
         print("Hello")
 
     async def goodbye():
         print("Goodbye")
 
+    server = Server()
     server.add_startup_task(hello())
     server.add_shutdown_task(goodbye())
 
@@ -87,6 +85,20 @@ def request():
     result = request.require("alice")
     assert result == "2", result
 
+    with expect_exception(BadRequestError):
+        request.require("not-there")
+
+@test
+async def command():
+    with expect_system_exit():
+        BrbnCommand().main(["--init-only"])
+
+    with expect_exception(ModuleNotFoundError):
+        BrbnCommand().main(["--init-only", "somemodule:someserver"])
+
+    command = BrbnCommand()
+    command.main(["--init-only", "brbn.testapp:server"])
+
 @test
 async def client_server():
     async with TestServer() as url:
@@ -95,21 +107,39 @@ async def client_server():
             assert response.status_code == 200, response.status_code
             assert response.text == "main", response.text
 
-            response = await client.get(f"{url}/greek/alpha.txt")
+            response = await client.head(url)
             assert response.status_code == 200, response.status_code
-            assert response.headers["content-type"].startswith("text/plain"), response.headers["content-type"]
-            assert response.text == "alpha", response.text
 
-            response = await client.get(f"{url}/greek/beta.html")
-            assert response.status_code == 200, response.status_code
-            assert response.headers["content-type"].startswith("text/html"), response.headers["content-type"]
-            assert "beta" in response.text, response.text
+            response = await client.get(f"{url}/explode")
+            assert response.status_code == 500, response.status_code
 
             response = await client.get(f"{url}/not-there")
             assert response.status_code == 404, response.status_code
 
-            response = await client.get(f"{url}/greek/not-there")
+            response = await client.get(f"{url}/files/alpha.txt")
+            assert response.status_code == 200, response.status_code
+            assert response.headers["content-type"].startswith("text/plain"), response.headers["content-type"]
+            assert response.text == "alpha", response.text
+
+            response = await client.get(f"{url}/files/alpha.txt", headers={"if-none-match": response.headers["etag"]})
+            assert response.status_code == 304, response.status_code
+
+            response = await client.get(f"{url}/files/beta.html")
+            assert response.status_code == 200, response.status_code
+            assert response.headers["content-type"].startswith("text/html"), response.headers["content-type"]
+            assert "beta" in response.text, response.text
+
+            response = await client.get(f"{url}/files/not-there")
             assert response.status_code == 404, response.status_code
+
+            response = await client.post(f"{url}/json", json={"a": [1, 2, 3]})
+            assert response.status_code == 200, response.status_code
+
+            response = await client.get(f"{url}/post-only")
+            assert response.status_code == 400, response.status_code
+
+            response = await client.get(f"{url}/required-param")
+            assert response.status_code == 400, response.status_code
 
 def main():
     from .plano.commands import PlanoTestCommand
