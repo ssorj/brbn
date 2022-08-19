@@ -108,7 +108,7 @@ class Server:
     async def __call__(self, scope, receive, send):
         type = scope["type"]
 
-        print(f"Handling event {scope}")
+        # print(f"Handling event {scope}")
 
         if type == "http":
             await self._handle_http_event(scope, receive, send)
@@ -135,7 +135,7 @@ class Server:
             message = await receive()
             type = message["type"]
 
-            print(f"Receiving message {message}")
+            # print(f"Receiving message {message}")
 
             if type == "lifespan.startup":
                 for coro in self._startup_coros:
@@ -196,7 +196,7 @@ class Resource:
         except Exception as e:
             _log.exception(e)
             trace = _traceback.format_exc()
-            print(111, trace) # Need this in debug mode
+            print(111, trace) # Need this in debug mode XXX
             await request.respond(500, trace)
 
     async def handle(self, request):
@@ -345,14 +345,13 @@ _content_types_by_extension = {
     ".woff": "application/font-woff",
 }
 
-class FileResource(Resource):
-    def __init__(self, app=None, dir=None, subpath=None):
+class StaticDirectoryResource(Resource):
+    def __init__(self, dir, app=None):
         super().__init__(app=app, methods=("GET", "HEAD"))
 
         assert _os.path.isdir(dir), dir
 
         self.dir = dir
-        self.subpath = subpath
 
     async def handle(self, request):
         try:
@@ -361,7 +360,7 @@ class FileResource(Resource):
             await request.respond(404, "Not found")
 
     async def process(self, request):
-        subpath = request.get("subpath", self.subpath)
+        subpath = request.require("subpath") # XXX brbn. and maybe don't use require
 
         assert subpath is not None
         assert subpath.startswith("/"), subpath
@@ -379,6 +378,30 @@ class FileResource(Resource):
     async def render(self, request, fs_path):
         with open(fs_path, "r") as file:
             return file.read()
+
+class PinnedFileResource(Resource):
+    def __init__(self, file, app=None):
+        super().__init__(app=app, methods=("GET", "HEAD"))
+
+        assert _os.path.isfile(file), file
+
+        with open(file, "r") as f:
+            self.content = f.read()
+
+        mtime = _os.path.getmtime(file)
+        self.etag = _struct.pack("f", mtime).hex()
+
+        _, ext = _os.path.splitext(file)
+        self.content_type = _content_types_by_extension.get(ext, "text/plain;charset=UTF-8")
+
+    async def get_etag(self, request, entity):
+        return self.etag
+
+    async def get_content_type(self, request, entity):
+        return self.content_type
+
+    async def render(self, request, entity):
+        return self.content
 
 class BrbnCommand:
     def __init__(self, server=None):
