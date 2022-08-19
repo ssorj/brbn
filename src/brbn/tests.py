@@ -128,6 +128,8 @@ async def command():
     thread.stop()
     thread.join()
 
+# XXX Achieve better coverage without running the client_server tests
+# @test(disabled=True)
 @test
 async def client_server():
     async with TestServer() as url:
