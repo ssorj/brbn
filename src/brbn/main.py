@@ -41,6 +41,7 @@ class Server:
         self._shutdown_coros = list()
         self._routes = list()
 
+        self._loop = None
         self._task = None
 
     def __repr__(self):
@@ -67,6 +68,7 @@ class Server:
     async def _run(self, host=None, port=None):
         assert self._task is None, self._task
 
+        self._loop = _asyncio.get_running_loop()
         self._task = _asyncio.create_task(self._run_uvicorn(host, port))
 
         await self._task
@@ -74,6 +76,7 @@ class Server:
     async def start(self, host=None, port=None):
         assert self._task is None, self._task
 
+        self._loop = _asyncio.get_running_loop()
         self._task = _asyncio.create_task(self._run_uvicorn(host, port))
 
         await self.started.wait()
@@ -408,7 +411,7 @@ class BrbnCommand:
 
         try:
             self.server.run(host=self.args.host, port=self.args.port)
-        except KeyboardInterrupt:
+        except KeyboardInterrupt: # pragma: nocover
             pass
 
 def _format_repr(obj, *args):

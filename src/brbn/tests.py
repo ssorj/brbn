@@ -20,7 +20,6 @@
 from .main import *
 from .plano import *
 from . import testapp
-from threading import Thread
 
 import asyncio
 import httpx
@@ -46,7 +45,13 @@ async def server():
     result = server.__repr__()
     assert result.startswith("Server"), result
 
+    await server.stop()
     await server.start(host="localhost", port=get_random_port())
+
+    with expect_exception():
+        await server.start(host="localhost", port=get_random_port())
+
+    await server.stop()
     await server.stop()
 
     async def hello():
@@ -98,6 +103,28 @@ async def command():
 
     command = BrbnCommand()
     command.main(["--init-only", "brbn.testapp:server"])
+
+    from threading import Thread
+
+    class TestThread(Thread):
+        def __init__(self):
+            super().__init__()
+            self.command = BrbnCommand(server=testapp.server)
+
+        def run(self):
+            self.command.main(args=["--port", str(get_random_port())])
+
+        def stop(self):
+            asyncio.run_coroutine_threadsafe(self.command.server.stop(), self.command.server._loop)
+
+    thread = TestThread()
+    thread.start()
+
+    while thread.command.server._loop is None:
+        sleep(0.1)
+
+    thread.stop()
+    thread.join()
 
 @test
 async def client_server():
