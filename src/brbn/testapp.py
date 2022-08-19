@@ -22,7 +22,7 @@ class Json(Resource):
 
 class PostOnly(Resource):
     def __init__(self):
-        super().__init__(methods=("POST",))
+        super().__init__(method="POST")
 
 class RequiredParam(Resource):
     async def process(self, request):

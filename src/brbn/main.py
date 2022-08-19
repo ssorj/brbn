@@ -179,9 +179,12 @@ class _Route:
         return f"{self.path} -> {self.resource}"
 
 class Resource:
-    def __init__(self, app=None, methods=("GET", "HEAD", "POST")):
+    def __init__(self, app=None, methods=("GET", "HEAD", "POST"), method=None):
         self.app = app
         self.methods = methods
+
+        if method is not None:
+            self.methods = (method,)
 
     def __repr__(self):
         return _format_repr(self)
