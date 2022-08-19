@@ -111,6 +111,12 @@ async def command():
             super().__init__()
             self.command = BrbnCommand(server=testapp.server)
 
+        def start(self):
+            super().start()
+
+            while self.command.server._loop is None:
+                sleep(0.1)
+
         def run(self):
             self.command.main(args=["--port", str(get_random_port())])
 
@@ -119,10 +125,6 @@ async def command():
 
     thread = TestThread()
     thread.start()
-
-    while thread.command.server._loop is None:
-        sleep(0.1)
-
     thread.stop()
     thread.join()
 

@@ -41,8 +41,8 @@ class Server:
         self._shutdown_coros = list()
         self._routes = list()
 
-        self._loop = None
         self._task = None
+        self._loop = None
 
     def __repr__(self):
         return _format_repr(self)
@@ -68,16 +68,16 @@ class Server:
     async def _run(self, host=None, port=None):
         assert self._task is None, self._task
 
-        self._loop = _asyncio.get_running_loop()
         self._task = _asyncio.create_task(self._run_uvicorn(host, port))
+        self._loop = _asyncio.get_running_loop()
 
         await self._task
 
     async def start(self, host=None, port=None):
         assert self._task is None, self._task
 
-        self._loop = _asyncio.get_running_loop()
         self._task = _asyncio.create_task(self._run_uvicorn(host, port))
+        self._loop = _asyncio.get_running_loop()
 
         await self.started.wait()
 
