@@ -51,13 +51,21 @@ def test(verbose=False, coverage=False):
         if verbose:
             args.append("--verbose")
 
+        args = " ".join(args)
+
         if coverage:
-            run(f". {dir}/bin/activate && PYTHONPATH={dir}/lib64/python3.10/site-packages coverage run --source brbn {dir}/bin/brbn-self-test {' '.join(args)}", shell=True)
+            import sys
+
+            # XXX
+            with working_env(PYTHONPATH=f"{dir}/lib64/python{sys.version_info.major}.{sys.version_info.minor}/site-packages"):
+                run(f". {dir}/bin/activate && coverage run --source brbn {dir}/bin/brbn-self-test {args}", shell=True)
+
             run("coverage report")
             run("coverage html")
+
             print(f"file:{get_current_dir()}/htmlcov/index.html")
         else:
-            run(f". {dir}/bin/activate && brbn-self-test  {' '.join(args)}", shell=True)
+            run(f". {dir}/bin/activate && brbn-self-test {args}", shell=True)
 
 @command
 def install():

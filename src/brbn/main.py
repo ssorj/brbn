@@ -36,6 +36,7 @@ class Server:
     def __init__(self):
         self.csp = "default-src 'self'"
         self.started = _asyncio.Event()
+        self.stopped = _asyncio.Event()
 
         self._startup_coros = list()
         self._shutdown_coros = list()
@@ -87,16 +88,14 @@ class Server:
 
         self._task.cancel()
 
-        try:
-            await self._task
-        except _asyncio.CancelledError:
-            pass
-        finally:
-            self._task = None
+        self._task = None
+        self._loop = None
+
+        await self.stopped.wait()
 
     async def _run_uvicorn(self, host=None, port=None):
-        config = _uvicorn.Config(self, host=host, port=port, log_level="error")
-        server = _UvicornServer(config, self.started)
+        config = _uvicorn.Config(self, host=host, port=port, log_level="info")
+        server = _UvicornServer(config, self.started, self.stopped)
 
         server.config.setup_event_loop()
 
@@ -108,6 +107,8 @@ class Server:
 
     async def __call__(self, scope, receive, send):
         type = scope["type"]
+
+        print(f"Handling event {scope}")
 
         if type == "http":
             await self._handle_http_event(scope, receive, send)
@@ -130,31 +131,39 @@ class Server:
         await Request(self, scope, receive, send).respond(404, "Not found")
 
     async def _handle_lifespan_event(self, scope, receive, send):
-        message = await receive()
-        type = message["type"]
+        while True:
+            message = await receive()
+            type = message["type"]
 
-        if type == "lifespan.startup":
-            for coro in self._startup_coros:
-                _asyncio.get_event_loop().create_task(coro)
+            print(f"Receiving message {message}")
 
-            await send({"type": "lifespan.startup.complete"})
-        elif type == "lifespan.shutdown":
-            for coro in self._shutdown_coros:
-                _asyncio.get_event_loop().create_task(coro)
+            if type == "lifespan.startup":
+                for coro in self._startup_coros:
+                    _asyncio.get_event_loop().create_task(coro)
 
-            await send({"type": "lifespan.shutdown.complete"})
-            return
-        else:
-            assert False, type # pragma: nocover
+                await send({"type": "lifespan.startup.complete"})
+            elif type == "lifespan.shutdown":
+                for coro in self._shutdown_coros:
+                    _asyncio.get_event_loop().create_task(coro)
+
+                await send({"type": "lifespan.shutdown.complete"})
+                return
+            else:
+                assert False, type # pragma: nocover
 
 class _UvicornServer(_uvicorn.Server):
-    def __init__(self, config, started):
+    def __init__(self, config, started, stopped):
         super().__init__(config=config)
         self._brbn_started = started
+        self._brbn_stopped = stopped
 
     async def startup(self, sockets=None):
         await super().startup(sockets=sockets)
         self._brbn_started.set()
+
+    async def shutdown(self, sockets=None):
+        await super().shutdown(sockets=sockets)
+        self._brbn_stopped.set()
 
 class _Route:
     def __init__(self, path, resource):
