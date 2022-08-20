@@ -95,6 +95,7 @@ def request():
 
 @test
 async def command():
+    # Missing MODULE:SERVER
     with expect_system_exit():
         BrbnCommand().main(["--init-only"])
 
@@ -103,6 +104,12 @@ async def command():
 
     command = BrbnCommand()
     command.main(["--init-only", "brbn.testapp:server"])
+
+    command = BrbnCommand()
+    command.main(["--verbose", "--init-only", "brbn.testapp:server"])
+
+    command = BrbnCommand()
+    command.main(["--quiet", "--init-only", "brbn.testapp:server"])
 
     from threading import Thread
 

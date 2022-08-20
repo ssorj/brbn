@@ -108,7 +108,7 @@ class Server:
     async def __call__(self, scope, receive, send):
         type = scope["type"]
 
-        # print(f"Handling event {scope}")
+        _log.debug("Handling event %s", scope)
 
         if type == "http":
             await self._handle_http_event(scope, receive, send)
@@ -135,7 +135,7 @@ class Server:
             message = await receive()
             type = message["type"]
 
-            # print(f"Receiving message {message}")
+            _log.debug("Receiving message %s", message)
 
             if type == "lifespan.startup":
                 for coro in self._startup_coros:
@@ -363,7 +363,7 @@ class StaticDirectoryResource(Resource):
             await request.respond(404, "Not found")
 
     async def process(self, request):
-        subpath = request.require("subpath") # XXX brbn. and maybe don't use require
+        subpath = request.require("subpath")
 
         assert subpath is not None
         assert subpath.startswith("/"), subpath
@@ -428,10 +428,15 @@ class BrbnCommand:
 
     def init(self, args=None):
         _logging.basicConfig(level=_logging.ERROR)
-        _logging.getLogger("brbn").setLevel(_logging.INFO)
-        _logging.getLogger("uvicorn").setLevel(_logging.INFO)
 
         self.args = self.parser.parse_args(args=args)
+
+        if self.args.verbose:
+            _logging.getLogger("brbn").setLevel(_logging.DEBUG)
+            _logging.getLogger("uvicorn").setLevel(_logging.DEBUG)
+        elif not self.args.quiet:
+            _logging.getLogger("brbn").setLevel(_logging.INFO)
+            _logging.getLogger("uvicorn").setLevel(_logging.INFO)
 
         if self.server is None:
             module_name, server_name = self.args.server.split(":", 1)
