@@ -180,7 +180,6 @@ async def client_server():
             assert response.status_code == 400, response.status_code
 
 def main():
-    from .plano.commands import PlanoTestCommand
     from . import tests
 
     PlanoTestCommand(tests).main()

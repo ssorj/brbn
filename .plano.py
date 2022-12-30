@@ -17,6 +17,8 @@
 # under the License.
 #
 
+from plano import *
+
 @command
 def build():
     check_module("build")
