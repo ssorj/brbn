@@ -9,7 +9,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-latest]
+        os: [macos-latest, ubuntu-latest, windows-latest]
         version: [3.7, 3.x]
     runs-on: ${{matrix.os}}
     steps:
@@ -17,7 +17,16 @@ jobs:
       - uses: actions/setup-python@v4
         with:
           python-version: ${{matrix.version}}
-      - run: pip install --user build wheel
+      - run: pip install build wheel
+      - run: python -m build
+      - run: pip install dist/ssorj_brbn-1.0.0-py3-none-any.whl
+      - run: brbn-self-test
+  fedora:
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    steps:
+      - uses: actions/checkout@v3
+      - run: dnf -y install make pip python python-build python-wheel
       - run: ./plano install
       - run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - run: brbn-self-test
