@@ -10,7 +10,7 @@ description = "Brbn serves HTTP"
 license = { file = "LICENSE.txt" }
 readme = "README.md"
 classifiers = [ "License :: OSI Approved :: Apache Software License" ]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [ "httpx", "uvicorn[standard]" ]
 
 [project.scripts]
