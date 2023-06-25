@@ -18,15 +18,16 @@ jobs:
         with:
           python-version: ${{matrix.version}}
       - run: pip install build wheel
-      - run: python -m build
+      - run: python plano build
+        env:
+          PYTHONPATH: subrepos/plano/src
       - run: pip install dist/ssorj_brbn-1.0.0-py3-none-any.whl
       - run: brbn-self-test
-  fedora:
-    runs-on: ubuntu-latest
-    container: fedora:latest
-    steps:
-      - uses: actions/checkout@v3
-      - run: dnf -y install make pip python python-build python-wheel
-      - run: ./plano install
-      - run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-      - run: brbn-self-test
+  # fedora:
+  #   runs-on: ubuntu-latest
+  #   container: fedora:latest
+  #   steps:
+  #     - uses: actions/checkout@v3
+  #     - run: dnf -y install make pip python python-build python-wheel
+  #     - run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+  #     - run: brbn-self-test

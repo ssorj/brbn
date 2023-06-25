@@ -33,6 +33,7 @@ def build():
 
 @command
 def test(verbose=False, coverage=False):
+    check_program("pip")
     check_module("venv")
 
     build()
