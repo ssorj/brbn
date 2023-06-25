@@ -20,3 +20,7 @@ brbn-self-test = "brbn.tests:main"
 [project.urls]
 "Homepage" = "https://github.com/ssorj/brbn"
 "Bug Tracker" = "https://github.com/ssorj/brbn/issues"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+packages = ["brbn", "brbn.plano"]
